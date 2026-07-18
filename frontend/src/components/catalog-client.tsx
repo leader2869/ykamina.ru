@@ -5,7 +5,7 @@ import { CatalogFilters, Filters } from '@/components/filters';
 import { ProductCard } from '@/components/product-card';
 import { Product } from '@/lib/products';
 
-const initialFilters: CatalogFilters = { types: [], minPrice: '', maxPrice: '', inStock: false, width: '', height: '' };
+const initialFilters: CatalogFilters = { types: [], minPrice: '', maxPrice: '', width: '', height: '' };
 const pageSize = 24;
 
 function matchesDimension(value: number | undefined, range: string) {
@@ -16,11 +16,6 @@ function matchesDimension(value: number | undefined, range: string) {
   return value >= 1000;
 }
 
-function isAvailable(product: Product) {
-  const availability = [product.availability?.moscow, product.availability?.saintPetersburg].filter(Boolean).join(' ').toLowerCase();
-  return Boolean(availability && !availability.includes('нет') && !availability.includes('по запросу')) || product.stock > 0;
-}
-
 export function CatalogClient({ products }: { products: Product[] }) {
   const [filters, setFilters] = useState<CatalogFilters>(initialFilters);
   const [sort, setSort] = useState('popular');
@@ -29,7 +24,7 @@ export function CatalogClient({ products }: { products: Product[] }) {
   const types = useMemo(() => Array.from(new Set(products.map((product) => product.type).filter((type): type is string => Boolean(type)))).sort((a, b) => a.localeCompare(b, 'ru')), [products]);
   const filtered = useMemo(() => products.filter((product) => {
     const min = Number(filters.minPrice || 0); const max = Number(filters.maxPrice || 0);
-    return (!filters.types.length || filters.types.includes(product.type)) && (!min || product.price >= min) && (!max || product.price <= max) && (!filters.inStock || isAvailable(product)) && matchesDimension(product.dimensionsData?.width, filters.width) && matchesDimension(product.dimensionsData?.height, filters.height);
+    return (!filters.types.length || filters.types.includes(product.type)) && (!min || product.price >= min) && (!max || product.price <= max) && matchesDimension(product.dimensionsData?.width, filters.width) && matchesDimension(product.dimensionsData?.height, filters.height);
   }).sort((a, b) => sort === 'low' ? a.price - b.price : sort === 'high' ? b.price - a.price : Number(Boolean(b.oldPrice)) - Number(Boolean(a.oldPrice)) || a.price - b.price), [products, filters, sort]);
   useEffect(() => setVisibleCount(pageSize), [filters, sort, products]);
   return <div className="mt-8 grid gap-8 md:grid-cols-[260px_1fr]">

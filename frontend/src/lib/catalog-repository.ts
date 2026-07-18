@@ -14,6 +14,7 @@ type DatabaseRow = {
   supplier_sku: string | null;
   dimensions: { width?: number; height?: number; depth?: number } | null;
   category_name: string | null;
+  parent_category_name: string | null;
   availability: Product['availability'] | null;
   specifications: Product['specifications'] | null;
 };
@@ -34,7 +35,7 @@ function mapRow(row: DatabaseRow): Product {
     id: String(row.id), name: row.name, slug: row.slug, description: row.description,
     price: Number(row.price), oldPrice: row.old_price === null ? undefined : Number(row.old_price),
     image: String(images[0] || 'https://images.unsplash.com/photo-1510798831971-661eb04b3739?auto=format&fit=crop&w=1200&q=85'), images,
-    type: row.category_name || 'Камин', dimensions: dimensionValues.length ? `${dimensionValues.join(' × ')} мм` : 'Уточняйте у менеджера',
+    type: row.category_name || 'Камин', parentType: row.parent_category_name || undefined, dimensions: dimensionValues.length ? `${dimensionValues.join(' × ')} мм` : 'Уточняйте у менеджера',
     stock: row.stock, article: row.supplier_sku || undefined, dimensionsData: dimensions,
     availability: row.availability || undefined, specifications: row.specifications || undefined,
   };
@@ -45,7 +46,7 @@ async function queryProducts(categorySlug?: string): Promise<Product[] | null> {
   try {
     const result = await pool.query<DatabaseRow>(
       `SELECT p.id, p.name, p.slug, p.description, p.price, p.old_price, p.images, p.stock, p.supplier_sku,
-              p.dimensions, p.availability, p.specifications, c.name AS category_name
+              p.dimensions, p.availability, p.specifications, c.name AS category_name, parent.name AS parent_category_name
        FROM products p LEFT JOIN categories c ON c.id = p.category_id
        LEFT JOIN categories parent ON parent.id = c.parent_id
        WHERE p.is_published = TRUE

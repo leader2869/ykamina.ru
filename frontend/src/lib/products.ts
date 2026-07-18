@@ -3,6 +3,7 @@ export type Product = {
   name: string;
   slug: string;
   type: string;
+  parentType?: string;
   price: number;
   oldPrice?: number;
   image: string;
