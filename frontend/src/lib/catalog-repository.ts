@@ -18,7 +18,7 @@ type DatabaseRow = {
 };
 
 export type CatalogCategory = { name: string; slug: string; children: { name: string; slug: string; count: number }[] };
-export type HeaderCategoryPreview = { image: string; name: string };
+export type HeaderCategoryPreview = { image: string };
 
 const globalForDatabase = global as typeof globalThis & { catalogPool?: Pool };
 const pool = process.env.DATABASE_URL
@@ -85,19 +85,19 @@ export async function getSaleProducts() {
 export async function getHeaderCategoryPreviews(): Promise<Record<string, HeaderCategoryPreview>> {
   if (!pool) return {};
   try {
-    const result = await pool.query<{ parent_slug: string; name: string; images: unknown }>(
-      `SELECT DISTINCT ON (parent.slug) parent.slug AS parent_slug, p.name, p.images
+    const result = await pool.query<{ category_slug: string; images: unknown }>(
+      `SELECT DISTINCT ON (c.slug) c.slug AS category_slug, p.images
        FROM products p
        JOIN categories c ON c.id = p.category_id
        JOIN categories parent ON parent.id = c.parent_id
        WHERE p.is_published = TRUE
          AND parent.slug = ANY($1::text[])
-       ORDER BY parent.slug, p.updated_at DESC`,
+       ORDER BY c.slug, p.updated_at DESC`,
       [['электрокамины', 'электроочаги', 'порталы', 'биокамины']],
     );
     return Object.fromEntries(result.rows.map((row) => {
       const images = Array.isArray(row.images) ? row.images.map(String) : [];
-      return [row.parent_slug, { name: row.name, image: images[0] || '' }];
+      return [row.category_slug, { image: images[0] || '' }];
     }));
   } catch {
     return {};
