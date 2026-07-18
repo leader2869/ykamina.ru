@@ -18,6 +18,7 @@ type DatabaseRow = {
 };
 
 export type CatalogCategory = { name: string; slug: string; children: { name: string; slug: string; count: number }[] };
+export type HeaderCategoryPreview = { image: string; name: string };
 
 const globalForDatabase = global as typeof globalThis & { catalogPool?: Pool };
 const pool = process.env.DATABASE_URL
@@ -62,6 +63,29 @@ export async function getProducts(categorySlug?: string) {
   const data = await queryProducts(categorySlug);
   return data || (categorySlug ? [] : demoProducts);
 }
+
+export async function getHeaderCategoryPreviews(): Promise<Record<string, HeaderCategoryPreview>> {
+  if (!pool) return {};
+  try {
+    const result = await pool.query<{ parent_slug: string; name: string; images: unknown }>(
+      `SELECT DISTINCT ON (parent.slug) parent.slug AS parent_slug, p.name, p.images
+       FROM products p
+       JOIN categories c ON c.id = p.category_id
+       JOIN categories parent ON parent.id = c.parent_id
+       WHERE p.is_published = TRUE
+         AND parent.slug = ANY($1::text[])
+       ORDER BY parent.slug, p.updated_at DESC`,
+      [['электрокамины', 'электроочаги', 'порталы']],
+    );
+    return Object.fromEntries(result.rows.map((row) => {
+      const images = Array.isArray(row.images) ? row.images.map(String) : [];
+      return [row.parent_slug, { name: row.name, image: images[0] || '' }];
+    }));
+  } catch {
+    return {};
+  }
+}
+
 export async function getProduct(idOrSlug: string) {
   if (!pool) return demoProducts.find((product) => product.id === idOrSlug || product.slug === idOrSlug);
   try {
@@ -112,7 +136,13 @@ export async function getCategories(): Promise<CatalogCategory[]> {
       `SELECT parent.name AS parent_name, parent.slug AS parent_slug, c.name, c.slug, COUNT(p.id) AS count
        FROM categories c JOIN categories parent ON parent.id = c.parent_id
        JOIN products p ON p.category_id = c.id AND p.is_published = TRUE
-       GROUP BY parent.id, c.id ORDER BY parent.name, c.name`,
+       GROUP BY parent.id, c.id
+       ORDER BY CASE parent.slug
+         WHEN 'электрокамины' THEN 1
+         WHEN 'электроочаги' THEN 2
+         WHEN 'порталы' THEN 3
+         ELSE 99
+       END, c.name`,
     );
     return Object.values(result.rows.reduce<Record<string, CatalogCategory>>((groups, row) => {
       const group = groups[row.parent_slug] ??= { name: row.parent_name, slug: row.parent_slug, children: [] };

@@ -1,13 +1,20 @@
 import Link from 'next/link';
+import Image from 'next/image';
+import { getHeaderCategoryPreviews } from '@/lib/catalog-repository';
 
-const links = [{ href: '/catalog', label: 'Каталог' }, { href: '/#about', label: 'О компании' }, { href: '/#delivery', label: 'Доставка' }];
+const quickTypes = [
+  { slug: 'электрокамины', href: '/catalog?category=электрокамины', title: 'Электрокамины', example: 'Готовое решение с очагом и порталом', children: [{ href: '/catalog?category=электрокамины-классические', label: 'Классические' }, { href: '/catalog?category=электрокамины-лофт', label: 'Лофт' }, { href: '/catalog?category=электрокамины-модерн', label: 'Модерн' }, { href: '/catalog?category=электрокамины-скандинавский-стиль', label: 'Скандинавский стиль' }] },
+  { slug: 'электроочаги', href: '/catalog?category=электроочаги', title: 'Электроочаги', example: 'Для встраивания в стену или портал', children: [{ href: '/catalog?category=электроочаги-3d-электроочаги', label: '3D электроочаги' }, { href: '/catalog?category=электроочаги-классические', label: 'Классические' }, { href: '/catalog?category=электроочаги-линейные', label: 'Линейные' }] },
+  { slug: 'порталы', href: '/catalog?category=порталы', title: 'Порталы', example: 'Чтобы создать законченный каминный ансамбль', children: [{ href: '/catalog?category=порталы-стандартные', label: 'Стандартные' }, { href: '/catalog?category=порталы-линейные', label: 'Линейные' }, { href: '/catalog?category=порталы-стандартные-из-камня', label: 'Из камня' }] },
+];
 
-export function Header() {
-  return <header className="border-b border-ink/10 bg-white/95 backdrop-blur">
-    <div className="container-page flex h-20 items-center justify-between gap-6">
-      <Link href="/" className="font-serif text-2xl font-semibold tracking-tight text-ink">YKAMINA<span className="text-terracotta">.</span></Link>
-      <nav className="hidden items-center gap-7 text-sm text-ink/75 md:flex">{links.map((link) => <Link className="transition hover:text-terracotta" key={link.href} href={link.href}>{link.label}</Link>)}</nav>
-      <div className="flex items-center gap-4 text-sm font-medium"><a className="hidden lg:block" href="tel:+74951234567">+7 (495) 123-45-67</a><Link href="/cart" className="rounded-full border border-ink/20 px-4 py-2 transition hover:border-terracotta hover:text-terracotta">Корзина <span className="ml-1 rounded-full bg-ink px-1.5 py-0.5 text-xs text-white">0</span></Link></div>
+export async function Header() {
+  const previews = await getHeaderCategoryPreviews();
+  return <header className="sticky top-0 z-40 border-b border-ink/10 bg-white/95 backdrop-blur-md">
+    <div className="container-page flex h-[72px] items-center justify-between gap-6">
+      <Link href="/" className="flex flex-col leading-none"><span className="font-serif text-[26px] font-semibold tracking-[-.05em] text-ink">Ykamina<span className="text-terracotta">.ru</span></span><span className="mt-1.5 text-[8px] font-semibold uppercase tracking-[.14em] text-ink/55 sm:text-[9px]">Уют начинается дома</span></Link>
+      <nav className="hidden items-center gap-8 text-[13px] font-medium text-ink/75 lg:flex">{quickTypes.map((type) => { const preview = previews[type.slug]; return <div className="group relative py-7" key={type.href}><Link href={type.href} className="flex items-center gap-1.5 transition hover:text-terracotta">{type.title}<span className="text-[10px] transition group-hover:rotate-180">⌄</span></Link><div className="pointer-events-none absolute left-1/2 top-full z-50 grid w-[520px] -translate-x-1/2 translate-y-2 grid-cols-[190px_1fr] gap-4 rounded-2xl border border-[#e9e5df] bg-white p-4 opacity-0 shadow-[0_20px_50px_-25px_rgba(29,29,27,.35)] transition duration-200 group-hover:pointer-events-auto group-hover:translate-y-0 group-hover:opacity-100"><Link href={type.href} className="group/card relative min-h-56 overflow-hidden rounded-xl bg-porcelain">{preview?.image ? <Image src={preview.image} alt={preview.name} fill className="object-contain p-3 transition duration-300 group-hover/card:scale-105" sizes="190px" /> : <span className="flex h-full items-end p-4 font-serif text-xl text-ink">{type.title}</span>}<span className="absolute bottom-3 left-3 right-3 line-clamp-2 bg-white/85 px-2 py-1 text-[10px] leading-4 text-ink/65 backdrop-blur">{preview?.name || 'Подобрать модель'}</span></Link><div><Link href={type.href} className="block font-serif text-2xl text-ink transition hover:text-terracotta">{type.title}</Link><p className="mt-1 text-xs leading-5 text-ink/60">{type.example}</p><div className="mt-3 border-t border-[#e9e5df] pt-2">{type.children.map((child) => <Link key={child.href} href={child.href} className="block rounded-lg px-3 py-2 text-sm transition hover:bg-porcelain hover:text-terracotta">{child.label}</Link>)}</div></div></div></div>; })}</nav>
+      <div className="flex items-center gap-3 text-sm font-medium"><a className="hidden text-[13px] lg:block" href="tel:+74951234567">+7 (495) 123-45-67</a><Link href="/cart" className="rounded-full border border-ink/20 px-4 py-2 text-[13px] transition hover:border-terracotta hover:text-terracotta">Корзина <span className="ml-1 rounded-full bg-ink px-1.5 py-0.5 text-[10px] text-white">0</span></Link></div>
     </div>
   </header>;
 }
