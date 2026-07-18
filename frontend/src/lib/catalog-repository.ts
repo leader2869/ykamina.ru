@@ -1,4 +1,5 @@
 import { Pool } from 'pg';
+import { unstable_noStore as noStore } from 'next/cache';
 import { Product, products as demoProducts } from '@/lib/products';
 
 type DatabaseRow = {
@@ -18,7 +19,7 @@ type DatabaseRow = {
 };
 
 export type CatalogCategory = { name: string; slug: string; children: { name: string; slug: string; count: number }[] };
-export type HeaderCategoryPreview = { image: string };
+export type HeaderCategoryPreview = { images: string[] };
 
 const globalForDatabase = global as typeof globalThis & { catalogPool?: Pool };
 const pool = process.env.DATABASE_URL
@@ -83,22 +84,30 @@ export async function getSaleProducts() {
 }
 
 export async function getHeaderCategoryPreviews(): Promise<Record<string, HeaderCategoryPreview>> {
+  noStore();
   if (!pool) return {};
   try {
     const result = await pool.query<{ category_slug: string; images: unknown }>(
-      `SELECT DISTINCT ON (c.slug) c.slug AS category_slug, p.images
-       FROM products p
-       JOIN categories c ON c.id = p.category_id
-       JOIN categories parent ON parent.id = c.parent_id
-       WHERE p.is_published = TRUE
-         AND parent.slug = ANY($1::text[])
-       ORDER BY c.slug, p.updated_at DESC`,
+      `SELECT category_slug, images FROM (
+         SELECT c.slug AS category_slug, p.images,
+                ROW_NUMBER() OVER (PARTITION BY c.slug ORDER BY RANDOM()) AS row_number
+         FROM products p
+         JOIN categories c ON c.id = p.category_id
+         JOIN categories parent ON parent.id = c.parent_id
+         WHERE p.is_published = TRUE
+           AND parent.slug = ANY($1::text[])
+           AND COALESCE(jsonb_array_length(p.images), 0) > 0
+       ) previews
+       WHERE row_number <= 6
+       ORDER BY category_slug, row_number`,
       [['электрокамины', 'электроочаги', 'порталы', 'биокамины']],
     );
-    return Object.fromEntries(result.rows.map((row) => {
+    return result.rows.reduce<Record<string, HeaderCategoryPreview>>((previews, row) => {
       const images = Array.isArray(row.images) ? row.images.map(String) : [];
-      return [row.category_slug, { image: images[0] || '' }];
-    }));
+      const category = previews[row.category_slug] ??= { images: [] };
+      if (images[0]) category.images.push(images[0]);
+      return previews;
+    }, {});
   } catch {
     return {};
   }
