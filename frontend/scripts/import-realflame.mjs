@@ -12,10 +12,10 @@ const client = new Client({ connectionString: databaseUrl });
 const normalize = (value) => value?.trim().replace(/^\uFEFF/, '') || '';
 const makeSlug = (article) => `realflame-${article.toLowerCase().replace(/[^a-z0-9а-яё]+/giu, '-')}`;
 const isAccessory = (name) => /^(пульт|парогенератор|вставка|рамка|панель)/iu.test(name.trim());
-const categoryFor = (name) => {
-  const value = name.toLowerCase();
+const categoryFor = (name, description = '') => {
+  const value = `${name} ${description}`.toLowerCase();
   if (isAccessory(name)) return ['Другое', 'Аксессуары'];
-  if (value.includes('биокамин')) return ['Биокамины', 'Все биокамины'];
+  if (value.includes('биокамин')) return ['Биокамины', 'Биокамины'];
   // Портал может быть «под очаг» — это не электроочаг, а самостоятельный портал.
   if (value.startsWith('портал') || value.includes('портал каминный') || value.includes('обрамление')) {
     const stone = value.includes('камень') || value.includes('мрамор');
@@ -67,7 +67,8 @@ try {
     const price = Number.parseFloat(normalize(row['Цена "Розничная цена"']).replace(',', '.'));
     if (!name || !article || !Number.isFinite(price) || price <= 0) continue;
 
-    const [parentName, categoryName] = categoryFor(name);
+    const description = normalize(row['Детальное описание']) || `${name}.`;
+    const [parentName, categoryName] = categoryFor(name, description);
     const categoryKey = `${parentName}/${categoryName}`;
     if (!categories.has(categoryKey)) {
       const slugify = (value) => value.toLowerCase().replace(/[^a-z0-9а-яё]+/giu, '-').replace(/^-|-$/g, '');
@@ -87,7 +88,6 @@ try {
 
     const image = normalize(row['Детальная картинка (путь)']);
     const dimensions = { height: Number(normalize(row['Высота, мм [HEIGHT]'])) || null, width: Number(normalize(row['Ширина, мм [WIDTH]'])) || null, depth: Number(normalize(row['Глубина, мм [DEPTH]'])) || null };
-    const description = normalize(row['Детальное описание']) || `${name}. Товар поставщика RealFlame.`;
     const existing = await client.query('SELECT id FROM products WHERE supplier_sku = $1', [article]);
     const result = await client.query(
       `INSERT INTO products (name, slug, description, price, category_id, images, stock, dimensions, supplier_sku, supplier_updated_at, is_published)

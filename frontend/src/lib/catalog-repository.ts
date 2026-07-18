@@ -64,6 +64,24 @@ export async function getProducts(categorySlug?: string) {
   return data || (categorySlug ? [] : demoProducts);
 }
 
+export async function getSaleProducts() {
+  if (!pool) return demoProducts.filter((product) => product.oldPrice && product.oldPrice > product.price);
+  try {
+    const result = await pool.query<DatabaseRow>(
+      `SELECT p.id, p.name, p.slug, p.description, p.price, p.old_price, p.images, p.stock, p.supplier_sku,
+              p.dimensions, p.availability, p.specifications, c.name AS category_name
+       FROM products p
+       LEFT JOIN categories c ON c.id = p.category_id
+       WHERE p.is_published = TRUE AND p.old_price > p.price
+       ORDER BY ((p.old_price - p.price) / p.old_price) DESC, p.updated_at DESC`,
+    );
+    return result.rows.map(mapRow);
+  } catch (error) {
+    console.error('Sales database fallback:', error);
+    return demoProducts.filter((product) => product.oldPrice && product.oldPrice > product.price);
+  }
+}
+
 export async function getHeaderCategoryPreviews(): Promise<Record<string, HeaderCategoryPreview>> {
   if (!pool) return {};
   try {
@@ -75,7 +93,7 @@ export async function getHeaderCategoryPreviews(): Promise<Record<string, Header
        WHERE p.is_published = TRUE
          AND parent.slug = ANY($1::text[])
        ORDER BY parent.slug, p.updated_at DESC`,
-      [['электрокамины', 'электроочаги', 'порталы']],
+      [['электрокамины', 'электроочаги', 'порталы', 'биокамины']],
     );
     return Object.fromEntries(result.rows.map((row) => {
       const images = Array.isArray(row.images) ? row.images.map(String) : [];
@@ -141,6 +159,7 @@ export async function getCategories(): Promise<CatalogCategory[]> {
          WHEN 'электрокамины' THEN 1
          WHEN 'электроочаги' THEN 2
          WHEN 'порталы' THEN 3
+         WHEN 'биокамины' THEN 4
          ELSE 99
        END, c.name`,
     );

@@ -12,10 +12,12 @@
     "db:seed": "psql \"$DATABASE_URL\" -f ../database/seeds/001_demo_data.sql",
     "supplier:realflame": "node --env-file=.env.local scripts/import-realflame.mjs",
     "supplier:realflame:stock": "node --env-file=.env.local scripts/import-realflame-stock.mjs",
-    "supplier:realflame:sync": "npm run supplier:realflame && npm run supplier:realflame:stock",
+    "supplier:realflame:sales": "node --env-file=.env.local scripts/import-realflame-sales.mjs",
+    "supplier:realflame:sync": "npm run supplier:realflame && npm run supplier:realflame:stock && npm run supplier:realflame:sales",
     "supplier:realflame:gallery": "node --env-file=.env.local scripts/import-realflame-gallery.mjs",
     "supplier:realflame:photobank": "node --env-file=.env.local scripts/import-realflame-photobank.mjs",
-    "supplier:realflame:compatibilities": "node --env-file=.env.local scripts/import-realflame-compatibilities.mjs"
+    "supplier:realflame:compatibilities": "node --env-file=.env.local scripts/import-realflame-compatibilities.mjs",
+    "catalog:publish-biofireplaces": "node --env-file=.env.local scripts/publish-biofireplaces.mjs"
   },
   "dependencies": {
     "next": "14.2.33",
