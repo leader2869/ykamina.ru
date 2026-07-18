@@ -26,7 +26,7 @@ function text(value) {
 }
 
 function productLinks(html) {
-  return unique([...html.matchAll(/href="(\/catalog\/[^"?#]+)(?:\?[^"#]*)?"/g)].map((match) => match[1]));
+  return unique([...html.matchAll(/class="search-title"[^>]*>\s*<a href="(\/catalog\/[^"?#]+)/g)].map((match) => match[1]));
 }
 
 function articleFromPage(html) {
