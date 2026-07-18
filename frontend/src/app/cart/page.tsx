@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function CartPage() { return <section className="container-page py-16"><h1 className="font-serif text-5xl">Корзина</h1><div className="mt-8 rounded-2xl border border-dashed border-ink/20 bg-white p-10 text-center"><p className="font-serif text-2xl">Ваша корзина пока пуста</p><p className="mt-2 text-ink/60">Добавьте камин из каталога — он появится здесь.</p><Link className="mt-6 inline-block rounded-full bg-ink px-5 py-3 text-sm text-white" href="/catalog">Перейти в каталог</Link></div></section>; }
