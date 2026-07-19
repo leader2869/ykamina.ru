@@ -13,6 +13,30 @@ permissions:
   contents: read
 
 jobs:
+  claim:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Claim release before the legacy timer
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          script="/tmp/ykamina-claim-release"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes deploy/server-claim-release.sh "$DEPLOY_USER@$DEPLOY_HOST:$script"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "chmod 700 '$script'; '$script' '${GITHUB_SHA}'"
+
   verify:
     runs-on: ubuntu-latest
     defaults:
@@ -39,7 +63,7 @@ jobs:
           retention-days: 1
 
   deploy:
-    needs: verify
+    needs: [claim, verify]
     runs-on: ubuntu-latest
     environment:
       name: production
