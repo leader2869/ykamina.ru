@@ -9,7 +9,6 @@
     "lint": "next lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "db:seed": "psql \"$DATABASE_URL\" -f ../database/seeds/001_demo_data.sql",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
     "admin:create": "node --env-file=.env.local scripts/create-super-admin.mjs",
     "supplier:realflame": "node --env-file=.env.local scripts/import-realflame.mjs",

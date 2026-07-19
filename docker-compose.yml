@@ -10,7 +10,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/migrations/001_initial_schema.sql:/docker-entrypoint-initdb.d/001_initial_schema.sql:ro
-      - ./database/seeds/001_demo_data.sql:/docker-entrypoint-initdb.d/002_demo_data.sql:ro
 
 volumes:
   postgres_data:
