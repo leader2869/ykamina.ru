@@ -1,0 +1,10 @@
+[Unit]
+Description=Deploy the latest Ykamina.ru main commit
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=deploy
+Group=deploy
+ExecStart=/usr/local/bin/ykamina-autodeploy
