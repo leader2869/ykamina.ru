@@ -17,4 +17,10 @@ if [[ "$current_sha" == "$remote_sha" ]]; then
   exit 0
 fi
 
+candidate_release="/srv/ykamina/releases/$remote_sha"
+if [[ -d "$candidate_release" && "$candidate_release" != "$current_release" ]]; then
+  # A failed build can leave a partial release behind. Always retry from a clean tree.
+  rm -rf -- "$candidate_release"
+fi
+
 exec /usr/local/bin/deploy-ykamina "$remote_sha"
