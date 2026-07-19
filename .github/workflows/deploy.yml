@@ -31,11 +31,11 @@ jobs:
       - name: Package verified release
         working-directory: .
         run: |
-          tar --exclude=.git --exclude=frontend/node_modules --exclude=frontend/.env.local --exclude=release.tgz -czf release.tgz .
+          tar --exclude=.git --exclude=frontend/node_modules --exclude=frontend/.env.local -czf "$RUNNER_TEMP/release.tgz" .
       - uses: actions/upload-artifact@v4
         with:
           name: production-release
-          path: release.tgz
+          path: ${{ runner.temp }}/release.tgz
           retention-days: 1
 
   deploy:
@@ -49,6 +49,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: production-release
+          path: artifacts
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -69,7 +70,7 @@ jobs:
         run: |
           archive="/tmp/ykamina-${GITHUB_SHA}.tgz"
           script="/tmp/ykamina-artifact-deploy"
-          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes release.tgz "$DEPLOY_USER@$DEPLOY_HOST:$archive"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes artifacts/release.tgz "$DEPLOY_USER@$DEPLOY_HOST:$archive"
           scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes deploy/server-artifact-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$script"
           {
             printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
