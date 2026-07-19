@@ -13,6 +13,7 @@ const money = (kopecks: number) =>
   }).format(kopecks / 100);
 const statusNames: Record<string, string> = {
   created: 'Создан',
+  authorized: 'Оплата авторизована',
   payment_initialized: 'Ожидает оплаты',
   payment_init_failed: 'Ошибка ссылки',
   confirmed: 'Оплачен',
@@ -20,6 +21,12 @@ const statusNames: Record<string, string> = {
   refunded: 'Возвращён',
   reversed: 'Возвращён',
 };
+
+const websiteProcessingStatuses = new Set(['authorized', 'confirmed']);
+
+function requiresWebsiteProcessing(order: PaymentOrder) {
+  return order.source === 'website' && websiteProcessingStatuses.has(order.status);
+}
 
 export function ManagerSales({
   products,
@@ -39,6 +46,15 @@ export function ManagerSales({
     paymentUrl: string;
     amountKopecks: number;
   } | null>(null);
+  const processingCount = orders.filter(requiresWebsiteProcessing).length;
+  const orderedOrders = useMemo(
+    () =>
+      [...orders].sort(
+        (left, right) =>
+          Number(requiresWebsiteProcessing(right)) - Number(requiresWebsiteProcessing(left)),
+      ),
+    [orders],
+  );
   const total = useMemo(
     () =>
       items.reduce(
@@ -127,7 +143,7 @@ export function ManagerSales({
           </p>
           <h1 className="mt-2 font-serif text-4xl tracking-[-.04em]">Продажи и оплаты</h1>
           <p className="mt-3 text-sm text-black/50">
-            Создайте заказ и передайте клиенту защищённую ссылку Т‑Банка.
+            Все заказы магазина: с сайта и созданные сотрудниками.
           </p>
         </div>
         <button
@@ -138,8 +154,16 @@ export function ManagerSales({
         </button>
       </div>
       <section className="mt-7 overflow-hidden rounded-2xl border border-black/[.07] bg-white">
-        <div className="border-b border-black/[.07] px-5 py-4">
-          <h2 className="font-serif text-2xl">Мои продажи</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[.07] px-5 py-4">
+          <div>
+            <h2 className="font-serif text-2xl">Все заказы</h2>
+            <p className="mt-1 text-[10px] text-black/40">Всего: {orders.length}</p>
+          </div>
+          {processingCount > 0 && (
+            <span className="rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-semibold text-amber-800">
+              Требуют обработки: {processingCount}
+            </span>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
@@ -148,13 +172,15 @@ export function ManagerSales({
                 <th className="px-5 py-3">Заказ / клиент</th>
                 <th className="px-4 py-3">Товары</th>
                 <th className="px-4 py-3">Сумма</th>
-                <th className="px-4 py-3">Статус</th>
+                <th className="px-4 py-3">Источник / статус</th>
                 <th className="px-5 py-3 text-right">Ссылка</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black/[.06]">
-              {orders.map((order) => (
-                <tr key={order.id}>
+              {orderedOrders.map((order) => {
+                const needsProcessing = requiresWebsiteProcessing(order);
+                return (
+                <tr key={order.id} className={needsProcessing ? 'bg-amber-50/70' : undefined}>
                   <td className="px-5 py-4">
                     <p className="font-mono text-[10px] text-terracotta">
                       {order.orderNumber ? `№ ${order.orderNumber}` : 'Номер после оплаты'}
@@ -167,11 +193,22 @@ export function ManagerSales({
                   </td>
                   <td className="px-4 py-4 font-semibold">{money(order.amountKopecks)}</td>
                   <td className="px-4 py-4">
-                    <span
-                      className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${order.status === 'confirmed' ? 'bg-emerald-50 text-emerald-700' : order.status.includes('cancel') || order.status.includes('refund') ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}
-                    >
-                      {statusNames[order.status] || order.status}
-                    </span>
+                    <div className="flex flex-col items-start gap-1.5">
+                      <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${order.source === 'website' ? 'bg-sky-50 text-sky-700' : 'bg-violet-50 text-violet-700'}`}>
+                        {order.source === 'website' ? 'Заказ с сайта' : order.managerName || 'Продажа менеджера'}
+                      </span>
+                      <span
+                        className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${order.status === 'confirmed' ? 'bg-emerald-50 text-emerald-700' : order.status.includes('cancel') || order.status.includes('refund') || order.status === 'reversed' ? 'bg-red-50 text-red-700' : 'bg-amber-50 text-amber-700'}`}
+                      >
+                        {statusNames[order.status] || order.status}
+                      </span>
+                      {needsProcessing && (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800">
+                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                          Требует обработки
+                        </span>
+                      )}
+                    </div>
                   </td>
                   <td className="px-5 py-4 text-right">
                     {order.paymentUrl && order.status !== 'confirmed' ? (
@@ -186,11 +223,12 @@ export function ManagerSales({
                     )}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {orders.length === 0 && (
-            <p className="py-12 text-center text-sm text-black/40">Продаж пока нет</p>
+            <p className="py-12 text-center text-sm text-black/40">Заказов пока нет</p>
           )}
         </div>
       </section>

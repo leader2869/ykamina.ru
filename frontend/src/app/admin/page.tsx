@@ -98,6 +98,7 @@ const actionNames: Record<string, string> = {
   'product.unpublished': 'Снял товар с публикации',
   'product.created': 'Создал товар вручную',
   'product.updated': 'Изменил товар',
+  'order.created': 'Создал заказ',
   'user.created': 'Создал пользователя',
   'user.updated': 'Изменил пользователя',
   'user.deleted': 'Удалил пользователя',

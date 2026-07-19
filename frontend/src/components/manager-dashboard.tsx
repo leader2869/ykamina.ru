@@ -98,6 +98,7 @@ function categoryGroups(categories: AdminCategory[]) {
 
 function ManagerCatalog({ data, query, selectedCategory, onCategoryChange, onQueryChange }: { data: ManagerCatalog; query: string; selectedCategory: string; onCategoryChange: (slug: string) => void; onQueryChange: (query: string) => void }) {
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [creatingProduct, setCreatingProduct] = useState(false);
   const groups = categoryGroups(data.categories);
   const normalizedQuery = query.trim().toLowerCase();
   const category = data.categories.find((item) => item.slug === selectedCategory);
@@ -109,7 +110,7 @@ function ManagerCatalog({ data, query, selectedCategory, onCategoryChange, onQue
   });
 
   return <>
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-terracotta">Рабочий каталог</p><h1 className="mt-2 font-serif text-[34px] leading-none tracking-[-.035em] sm:text-[42px]">Каталог товаров</h1><p className="mt-3 text-[13px] text-black/50">Цены, маржинальность, остатки и служебный статус товаров.</p></div><div className="flex items-center gap-2 rounded-full border border-black/[.08] bg-white px-4 py-2.5 text-xs text-black/55"><span className={`h-2 w-2 rounded-full ${data.databaseConnected ? 'bg-[#6d9f6b]' : 'bg-amber-500'}`}/>{data.databaseConnected ? 'Данные актуальны' : 'Демонстрационные данные'}</div></div>
+    <div className="mb-6 flex flex-wrap items-end justify-between gap-4"><div><p className="text-[10px] font-semibold uppercase tracking-[.18em] text-terracotta">Рабочий каталог</p><h1 className="mt-2 font-serif text-[34px] leading-none tracking-[-.035em] sm:text-[42px]">Каталог товаров</h1><p className="mt-3 text-[13px] text-black/50">Цены, маржинальность, остатки и служебный статус товаров.</p></div><div className="flex flex-wrap items-center gap-2"><button type="button" onClick={() => setCreatingProduct(true)} className="rounded-full bg-terracotta px-5 py-2.5 text-xs font-semibold text-white transition hover:bg-[#242421]">+ Добавить товар</button><div className="flex items-center gap-2 rounded-full border border-black/[.08] bg-white px-4 py-2.5 text-xs text-black/55"><span className={`h-2 w-2 rounded-full ${data.databaseConnected ? 'bg-[#6d9f6b]' : 'bg-amber-500'}`}/>{data.databaseConnected ? 'Данные актуальны' : 'Демонстрационные данные'}</div></div></div>
     <section className="rounded-2xl border border-black/[.06] bg-[#fbfaf8] p-4 sm:p-6">
       <div className="grid gap-6 xl:grid-cols-[230px_minmax(0,1fr)]">
         <aside className="h-fit rounded-2xl bg-[#f0ece6] p-3 xl:sticky xl:top-24">
@@ -126,6 +127,7 @@ function ManagerCatalog({ data, query, selectedCategory, onCategoryChange, onQue
       </div>
     </section>
     {editingProductId && <ManagerProductEditor productId={editingProductId} categories={data.categories} onClose={() => setEditingProductId(null)}/>}
+    {creatingProduct && <ManagerProductEditor categories={data.categories} onClose={() => setCreatingProduct(false)}/>}
   </>;
 }
 
@@ -133,18 +135,8 @@ export function ManagerDashboard({ user, catalog, orders, analytics }: { user: {
   const [active, setActive] = useState('Обзор');
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const [taskOpen, setTaskOpen] = useState(false);
-  const [taskAdded, setTaskAdded] = useState(false);
   const filteredDeals = useMemo(() => deals.filter((deal) => `${deal.name} ${deal.product}`.toLowerCase().includes(query.toLowerCase())), [query]);
-  const firstName = user.fullName.trim().split(/\s+/)[0] || 'менеджер';
   const initials = user.fullName.trim().split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'М';
-
-  function addTask(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setTaskOpen(false);
-    setTaskAdded(true);
-    window.setTimeout(() => setTaskAdded(false), 2800);
-  }
 
   return <div className="min-h-screen bg-[#f4f1ec] text-[#22201e]">
     <div className="mx-auto flex min-h-[calc(100vh-72px)] max-w-[1600px] gap-6 px-4 py-6 sm:px-6 sm:py-8">
@@ -159,7 +151,7 @@ export function ManagerDashboard({ user, catalog, orders, analytics }: { user: {
         <form action={logout} className="group relative mt-2 grid place-items-center"><button aria-label="Выйти из аккаунта" className="grid h-10 w-10 place-items-center rounded-xl text-white/55 transition hover:bg-red-500/15 hover:text-red-200"><svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M10 5H5v14h5"/><path d="M14 8l4 4-4 4M18 12H9"/></svg></button><span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-[60] hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#242421] px-3 py-2 text-[11px] font-semibold text-white shadow-xl group-hover:block">Выйти из аккаунта</span></form>
       </aside>
 
-      <section className="min-w-0 flex-1 overflow-hidden rounded-[22px] bg-[#f4f1ec]">
+      <section className="min-w-0 flex-1 overflow-visible rounded-[22px] bg-[#f4f1ec]">
         <header className="flex h-[76px] items-center justify-between border-b border-black/[.07] bg-[#fbfaf8] px-5 sm:px-8">
           <div className="relative w-full max-w-[390px]">
             <Icon name="search" className="absolute left-0 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-black/35"/>
@@ -167,20 +159,26 @@ export function ManagerDashboard({ user, catalog, orders, analytics }: { user: {
           </div>
           <div className="ml-5 flex items-center gap-2">
             <button className="relative grid h-10 w-10 place-items-center rounded-full border border-black/10 bg-white text-black/55 transition hover:border-terracotta hover:text-terracotta" aria-label="Уведомления"><Icon name="bell" className="h-[18px] w-[18px]"/><span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-terracotta"/></button>
-            <button onClick={() => setTaskOpen(true)} className="ml-1 inline-flex items-center gap-2 rounded-full bg-terracotta px-4 py-2.5 text-xs font-semibold text-white shadow-sm transition hover:bg-terracotta-dark"><Icon name="plus" className="h-4 w-4"/><span className="hidden sm:inline">Новая задача</span></button>
           </div>
         </header>
 
         <nav className="flex gap-1 overflow-x-auto border-b border-black/[.07] bg-[#fbfaf8] px-4 py-2 lg:hidden">{navItems.map((item) => <button key={item.label} onClick={() => { setActive(item.label); setQuery(''); }} className={`flex shrink-0 items-center gap-2 rounded-full px-3 py-2 text-[11px] ${active === item.label ? 'bg-[#242421] text-white' : 'text-black/50'}`}><Icon name={item.icon} className="h-4 w-4"/>{item.label}</button>)}</nav>
         <main className="p-5 sm:p-8 xl:p-10">
+          <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
+            <nav className="eyebrow flex flex-wrap items-center gap-2" aria-label="Навигация по кабинету менеджера">
+              <button type="button" onClick={() => { setActive('Обзор'); setQuery(''); }} className="transition hover:text-black hover:underline">
+                Менеджер по продажам
+              </button>
+              <span aria-hidden="true">·</span>
+              <span>{active}</span>
+            </nav>
+            <div className="flex items-center gap-2 rounded-full bg-white px-3 py-2 text-[11px] font-medium shadow-card">
+              <span className={`h-2 w-2 rounded-full ${catalog.databaseConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />
+              {catalog.databaseConnected ? 'Система работает' : 'Демонстрационные данные'}
+            </div>
+          </header>
           {active === 'Каталог' ? <ManagerCatalog data={catalog} query={query} selectedCategory={selectedCategory} onCategoryChange={setSelectedCategory} onQueryChange={setQuery}/> : active === 'Сделки' ? <ManagerSales products={catalog.products} orders={orders}/> : active === 'Аналитика' ? <SalesAnalyticsPanel data={analytics}/> : <>
-          {active !== 'Обзор' && <div className="mb-6 flex items-center justify-between rounded-2xl border border-terracotta/15 bg-white px-5 py-4"><div><p className="text-sm font-semibold">Раздел «{active}»</p><p className="mt-1 text-xs text-black/45">Показываем связанные данные в обзорном режиме.</p></div><button onClick={() => setActive('Обзор')} className="text-xs font-semibold text-terracotta">Вернуться к обзору</button></div>}
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div><p className="text-xs text-black/45">Воскресенье, 19 июля</p><h1 className="mt-2 font-serif text-[34px] leading-none tracking-[-.035em] sm:text-[42px]">Доброе утро, {firstName}</h1><p className="mt-3 text-[13px] text-black/50">Сегодня 3 встречи и 5 задач. Две сделки требуют внимания.</p></div>
-            <div className="flex items-center gap-2 rounded-full border border-black/[.08] bg-white px-4 py-2.5 text-xs text-black/55"><span className="h-2 w-2 rounded-full bg-[#6d9f6b]"/>План обновлён сейчас</div>
-          </div>
-
-          <div className="mt-8 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
             {[
               { label: 'Оплаченная выручка', value: formatMoney(analytics.revenueKopecks / 100), note: `${analytics.paidOrders} подтверждённых оплат`, good: true },
               { label: 'Конверсия в оплату', value: `${analytics.orders ? Math.round(analytics.paidOrders / analytics.orders * 100) : 0}%`, note: `${analytics.paidOrders} из ${analytics.orders} заказов`, progress: analytics.orders ? Math.round(analytics.paidOrders / analytics.orders * 100) : 0 },
@@ -225,7 +223,6 @@ export function ManagerDashboard({ user, catalog, orders, analytics }: { user: {
                 <div className="mt-5 space-y-1">
                   {tasks.map((task, index) => <button key={task.title} className="group flex w-full gap-3 rounded-xl px-2 py-3 text-left transition hover:bg-white/[.05]"><span className="mt-0.5 w-9 shrink-0 text-[10px] text-white/40">{task.time}</span><span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-white/25 group-hover:border-terracotta">{index === 0 && <span className="h-1.5 w-1.5 rounded-full bg-terracotta"/>}</span><span><span className="block text-[11px] font-medium text-white/90">{task.title}</span><span className="mt-1 block text-[9px] leading-4 text-white/35">{task.detail}</span></span></button>)}
                 </div>
-                <button onClick={() => setTaskOpen(true)} className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-white/10 py-2.5 text-[10px] font-semibold text-white/65 transition hover:border-white/25 hover:text-white"><Icon name="plus" className="h-3.5 w-3.5"/>Добавить задачу</button>
               </section>
 
               <section className="rounded-2xl border border-black/[.06] bg-[#fbfaf8] p-5 sm:p-6">
@@ -239,15 +236,5 @@ export function ManagerDashboard({ user, catalog, orders, analytics }: { user: {
       </section>
     </div>
 
-    {taskAdded && <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-[#292925] px-5 py-3 text-xs font-medium text-white shadow-xl">Задача добавлена в план ✓</div>}
-    {taskOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-black/35 p-5 backdrop-blur-sm" onMouseDown={(event) => { if (event.target === event.currentTarget) setTaskOpen(false); }}>
-      <form onSubmit={addTask} className="w-full max-w-md rounded-3xl bg-[#fbfaf8] p-6 shadow-2xl sm:p-8">
-        <div className="flex items-start justify-between"><div><p className="eyebrow">План на день</p><h2 className="mt-2 font-serif text-3xl">Новая задача</h2></div><button type="button" onClick={() => setTaskOpen(false)} className="grid h-9 w-9 place-items-center rounded-full border border-black/10 text-black/45"><Icon name="close" className="h-4 w-4"/></button></div>
-        <label className="mt-6 block text-[11px] font-semibold">Что нужно сделать<input required autoFocus placeholder="Например, отправить предложение" className="mt-2 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-xs outline-none focus:border-terracotta"/></label>
-        <div className="mt-4 grid grid-cols-2 gap-3"><label className="block text-[11px] font-semibold">Дата<input type="date" required defaultValue="2026-07-19" className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-xs outline-none focus:border-terracotta"/></label><label className="block text-[11px] font-semibold">Время<input type="time" required defaultValue="16:00" className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-3 text-xs outline-none focus:border-terracotta"/></label></div>
-        <label className="mt-4 block text-[11px] font-semibold">Клиент<input placeholder="Имя или телефон" className="mt-2 w-full rounded-xl border border-black/10 bg-white px-4 py-3 text-xs outline-none focus:border-terracotta"/></label>
-        <button className="mt-6 w-full rounded-full bg-terracotta py-3 text-xs font-semibold text-white transition hover:bg-terracotta-dark">Добавить в план</button>
-      </form>
-    </div>}
   </div>;
 }

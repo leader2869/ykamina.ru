@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     const orderId = randomUUID().replaceAll('-', '');
     const storedItems = products.map((product, index) => ({ productId: product!.id, name: product!.name, priceKopecks: Math.round(product!.price * 100), quantity: items[index].quantity }));
     const receipt = buildTBankReceipt(storedItems, { email, phone });
-    await createPaymentOrder({ id: orderId, amountKopecks: amount, name, email, phone, city, comment, items: storedItems, receipt, source: 'manager', managerUserId: user.id });
+    await createPaymentOrder({ id: orderId, amountKopecks: amount, name, email, phone, city, comment, items: storedItems, receipt, source: 'manager', managerUserId: user.id, auditActorUserId: user.id });
 
     try {
       const configuredBaseUrl = process.env.NEXT_PUBLIC_SITE_URL;

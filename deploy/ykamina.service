@@ -1,0 +1,19 @@
+[Unit]
+Description=Ykamina.ru Next.js storefront
+After=network.target
+
+[Service]
+Type=simple
+User=deploy
+Group=deploy
+WorkingDirectory=/srv/ykamina/current/frontend
+EnvironmentFile=/etc/ykamina/ykamina.env
+Environment=NODE_ENV=production
+Environment=NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ykamina-timeweb-db.crt
+Environment=PORT=3000
+ExecStart=/usr/bin/npm run start
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
