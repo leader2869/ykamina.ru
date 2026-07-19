@@ -22,9 +22,18 @@ staging_dir="$app_root/.staging-$commit_sha-$$"
 superseded_dir="$app_root/.superseded-$commit_sha-$$"
 certificate_file="/etc/ssl/certs/ykamina-timeweb-db.crt"
 previous_release="$(readlink -f "$current_link" 2>/dev/null || true)"
+rollback_release="$previous_release"
+displaced_current=""
 
 if [[ "$release_dir" == "$previous_release" ]]; then
-  release_dir="$releases_dir/$commit_sha-$(date +%s)"
+  displaced_current="$app_root/.previous-$commit_sha-$$"
+  if [[ -f "$release_dir/.artifact-previous-release" ]]; then
+    claimed_previous="$(cat "$release_dir/.artifact-previous-release")"
+    if [[ "$claimed_previous" == "$releases_dir/"* && -d "$claimed_previous/frontend" ]]; then
+      rollback_release="$claimed_previous"
+    fi
+  fi
+  mv "$release_dir" "$displaced_current"
 fi
 
 cleanup() {
@@ -72,6 +81,8 @@ healthy=false
 for _ in {1..20}; do
   if systemctl is-active --quiet ykamina.service \
     && curl --fail --silent --max-time 5 http://127.0.0.1:3000/ >/dev/null \
+    && curl --fail --silent --max-time 10 http://127.0.0.1:3000/catalog >/dev/null \
+    && curl --fail --silent --max-time 10 http://127.0.0.1:3000/account/login >/dev/null \
     && curl --fail --silent --max-time 10 http://127.0.0.1:3000/api/products \
       | node -e 'let input=""; process.stdin.on("data", chunk => input += chunk).on("end", () => { try { const response = JSON.parse(input); process.exit(Array.isArray(response.data) && response.data.length > 20 ? 0 : 1); } catch { process.exit(1); } });'; then
     healthy=true
@@ -82,13 +93,17 @@ done
 
 if [[ "$healthy" != true ]]; then
   echo "The new release failed its health check." >&2
-  if [[ -n "$previous_release" && -d "$previous_release" ]]; then
-    ln -sfn "$previous_release" "$app_root/current.next"
+  if [[ -n "$rollback_release" && -d "$rollback_release" ]]; then
+    ln -sfn "$rollback_release" "$app_root/current.next"
     mv -Tf "$app_root/current.next" "$current_link"
     sudo /usr/bin/systemctl restart ykamina.service
     echo "Rolled back to the previous release." >&2
   fi
   exit 1
+fi
+
+if [[ -n "$displaced_current" && -e "$displaced_current" ]]; then
+  rm -rf -- "$displaced_current" || true
 fi
 
 echo "Deployed $commit_sha successfully."
