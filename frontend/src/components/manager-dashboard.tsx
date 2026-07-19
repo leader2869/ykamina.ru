@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { logout } from '@/app/auth-actions';
 import type { AdminCategory, AdminProduct } from '@/lib/admin';
 import type { PaymentOrder, SalesAnalytics } from '@/lib/payment-orders';
@@ -9,6 +9,8 @@ import { ShareProductButton } from '@/components/share-product-button';
 import { ManagerSales } from '@/components/manager-sales';
 import { SalesAnalyticsPanel } from '@/components/sales-analytics-panel';
 import { ManagerProductEditor } from '@/components/manager-product-editor';
+import { ManagerCrm, ManagerOverview } from '@/components/manager-crm';
+import type { ManagerWorkspace } from '@/lib/manager-crm';
 
 type IconName = 'home' | 'catalog' | 'funnel' | 'users' | 'check' | 'chart' | 'search' | 'bell' | 'plus' | 'phone' | 'clock' | 'arrow' | 'calendar' | 'fire' | 'close';
 
@@ -33,33 +35,14 @@ function Icon({ name, className = 'h-5 w-5' }: { name: IconName; className?: str
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>{paths[name]}</svg>;
 }
 
-const navItems: { label: string; icon: IconName; count?: number }[] = [
+const navItems: { label: string; icon: IconName }[] = [
   { label: 'Обзор', icon: 'home' },
-  { label: 'Каталог', icon: 'catalog' },
-  { label: 'Сделки', icon: 'funnel', count: 12 },
   { label: 'Клиенты', icon: 'users' },
-  { label: 'Задачи', icon: 'check', count: 5 },
+  { label: 'Сделки', icon: 'funnel' },
+  { label: 'Платежи', icon: 'chart' },
+  { label: 'Задачи', icon: 'check' },
+  { label: 'Каталог', icon: 'catalog' },
   { label: 'Аналитика', icon: 'chart' },
-];
-
-const pipeline = [
-  { label: 'Новые', count: 8, amount: '1,24 млн ₽', width: 72, color: 'bg-[#d4a373]' },
-  { label: 'Консультация', count: 6, amount: '890 тыс. ₽', width: 58, color: 'bg-[#b66a4a]' },
-  { label: 'Предложение', count: 4, amount: '640 тыс. ₽', width: 44, color: 'bg-terracotta' },
-  { label: 'Согласование', count: 3, amount: '485 тыс. ₽', width: 34, color: 'bg-[#743e2d]' },
-];
-
-const deals = [
-  { initials: 'АВ', name: 'Анна Воронова', product: 'Каминокомплект RealFlame', amount: 186900, stage: 'Предложение', next: 'Сегодня, 14:30', hot: true, tone: 'bg-[#f1dfd3] text-[#8d452f]' },
-  { initials: 'МК', name: 'Михаил Круглов', product: 'Электроочаг Cassette 1000', amount: 242500, stage: 'Согласование', next: 'Сегодня, 16:00', hot: true, tone: 'bg-[#dce4dc] text-[#48604c]' },
-  { initials: 'ЕС', name: 'Елена Соколова', product: 'Портал Coventry + очаг', amount: 119800, stage: 'Консультация', next: 'Завтра, 11:00', hot: false, tone: 'bg-[#deddeb] text-[#55527a]' },
-  { initials: 'ДП', name: 'Дмитрий Панов', product: 'Биокамин Firezo Бостон', amount: 89700, stage: 'Новая', next: 'Сегодня, 18:00', hot: false, tone: 'bg-[#e7ded2] text-[#705d42]' },
-];
-
-const tasks = [
-  { time: '10:30', title: 'Отправить подборку Анне', detail: '3 каминокомплекта до 200 000 ₽', urgent: true },
-  { time: '12:00', title: 'Уточнить наличие на складе', detail: 'Очаг Cassette 1000 · заказ #1842', urgent: false },
-  { time: '14:30', title: 'Созвон с Анной Вороновой', detail: 'Обсудить доставку и монтаж', urgent: false },
 ];
 
 function formatMoney(value: number) { return `${new Intl.NumberFormat('ru-RU').format(value)} ₽`; }
@@ -131,19 +114,24 @@ function ManagerCatalog({ data, query, selectedCategory, onCategoryChange, onQue
   </>;
 }
 
-export function ManagerDashboard({ user, catalog, orders, analytics }: { user: { fullName: string }; catalog: ManagerCatalog; orders: PaymentOrder[]; analytics: SalesAnalytics }) {
+export function ManagerDashboard({ user, catalog, orders, analytics, workspace }: { user: { fullName: string }; catalog: ManagerCatalog; orders: PaymentOrder[]; analytics: SalesAnalytics; workspace: ManagerWorkspace }) {
   const [active, setActive] = useState('Обзор');
   const [query, setQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
-  const filteredDeals = useMemo(() => deals.filter((deal) => `${deal.name} ${deal.product}`.toLowerCase().includes(query.toLowerCase())), [query]);
   const initials = user.fullName.trim().split(/\s+/).map((part) => part[0]).join('').slice(0, 2).toUpperCase() || 'М';
+  const counts: Record<string, number> = {
+    Клиенты: workspace.clients.length,
+    Сделки: workspace.deals.filter((deal) => !['won', 'lost'].includes(deal.stage)).length,
+    Платежи: orders.filter((order) => !['confirmed', 'cancelled', 'refunded', 'reversed'].includes(order.status)).length,
+    Задачи: workspace.tasks.filter((task) => task.status === 'open').length,
+  };
 
   return <div className="min-h-screen bg-[#f4f1ec] text-[#22201e]">
     <div className="mx-auto flex min-h-[calc(100vh-72px)] max-w-[1600px] gap-6 px-4 py-6 sm:px-6 sm:py-8">
       <aside className="relative z-50 hidden h-fit w-[76px] shrink-0 overflow-visible rounded-[22px] bg-[#242421] p-3 text-white lg:block lg:sticky lg:top-24">
         <div className="grid place-items-center border-b border-white/10 pb-4 pt-1" title="Отдел продаж Ykamina.ru"><span className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 font-serif text-xl text-gold-light">Y</span></div>
         <nav className="mt-3 grid gap-1">
-          {navItems.map((item) => { const count = item.label === 'Сделки' ? orders.length : item.count; return <button key={item.label} type="button" onClick={() => { setActive(item.label); setQuery(''); }} aria-label={item.label} className={`group relative flex h-11 items-center justify-center rounded-xl transition ${active === item.label ? 'bg-white text-[#242421]' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
+          {navItems.map((item) => { const count = counts[item.label]; return <button key={item.label} type="button" onClick={() => { setActive(item.label); setQuery(''); }} aria-label={item.label} className={`group relative flex h-11 items-center justify-center rounded-xl transition ${active === item.label ? 'bg-white text-[#242421]' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
             <Icon name={item.icon}/>{Boolean(count) && <span className={`absolute right-1 top-1 grid h-4 min-w-4 place-items-center rounded-full px-1 text-[8px] font-bold ${active === item.label ? 'bg-terracotta text-white' : 'bg-white/15 text-white'}`}>{count}</span>}<span className="pointer-events-none absolute left-[calc(100%+10px)] top-1/2 z-[60] hidden -translate-y-1/2 whitespace-nowrap rounded-lg bg-[#242421] px-3 py-2 text-[11px] font-semibold text-white shadow-xl group-hover:block group-focus-visible:block">{item.label}</span>
           </button>; })}
         </nav>
@@ -155,7 +143,7 @@ export function ManagerDashboard({ user, catalog, orders, analytics }: { user: {
         <header className="flex h-[76px] items-center justify-between border-b border-black/[.07] bg-[#fbfaf8] px-5 sm:px-8">
           <div className="relative w-full max-w-[390px]">
             <Icon name="search" className="absolute left-0 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-black/35"/>
-            {active === 'Каталог' ? <p className="py-3 pl-7 text-[13px] font-semibold text-black/55">Менеджер продаж · Каталог</p> : <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Найти клиента или сделку" className="w-full border-0 bg-transparent py-3 pl-7 pr-4 text-[13px] outline-none placeholder:text-black/35"/>}
+            {active === 'Каталог' || active === 'Обзор' || active === 'Аналитика' ? <p className="py-3 pl-7 text-[13px] font-semibold text-black/55">Менеджер продаж · {active}</p> : <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={active === 'Платежи' ? 'Найти заказ или клиента' : 'Найти клиента, сделку или задачу'} className="w-full border-0 bg-transparent py-3 pl-7 pr-4 text-[13px] outline-none placeholder:text-black/35"/>}
           </div>
           <div className="ml-5 flex items-center gap-2">
             <button className="relative grid h-10 w-10 place-items-center rounded-full border border-black/10 bg-white text-black/55 transition hover:border-terracotta hover:text-terracotta" aria-label="Уведомления"><Icon name="bell" className="h-[18px] w-[18px]"/><span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-terracotta"/></button>
@@ -177,61 +165,16 @@ export function ManagerDashboard({ user, catalog, orders, analytics }: { user: {
               {catalog.databaseConnected ? 'Система работает' : 'Демонстрационные данные'}
             </div>
           </header>
-          {active === 'Каталог' ? <ManagerCatalog data={catalog} query={query} selectedCategory={selectedCategory} onCategoryChange={setSelectedCategory} onQueryChange={setQuery}/> : active === 'Сделки' ? <ManagerSales products={catalog.products} orders={orders}/> : active === 'Аналитика' ? <SalesAnalyticsPanel data={analytics}/> : <>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            {[
-              { label: 'Оплаченная выручка', value: formatMoney(analytics.revenueKopecks / 100), note: `${analytics.paidOrders} подтверждённых оплат`, good: true },
-              { label: 'Конверсия в оплату', value: `${analytics.orders ? Math.round(analytics.paidOrders / analytics.orders * 100) : 0}%`, note: `${analytics.paidOrders} из ${analytics.orders} заказов`, progress: analytics.orders ? Math.round(analytics.paidOrders / analytics.orders * 100) : 0 },
-              { label: 'Ожидают оплаты', value: String(analytics.awaitingPayment), note: 'Активные платёжные ссылки' },
-              { label: 'Средний чек', value: formatMoney(analytics.averageCheckKopecks / 100), note: 'По оплаченным заказам', good: true },
-            ].map((card) => <article key={card.label} className="rounded-2xl border border-black/[.06] bg-[#fbfaf8] p-5 shadow-[0_14px_34px_-28px_rgba(35,30,24,.45)]">
-              <p className="text-[11px] font-medium text-black/45">{card.label}</p><p className="mt-3 text-[25px] font-semibold tracking-[-.035em]">{card.value}</p>
-              {'progress' in card && <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-black/[.06]"><div className="h-full rounded-full bg-terracotta" style={{ width: `${card.progress}%` }}/></div>}
-              <p className={`mt-3 text-[10px] ${card.good ? 'text-[#558052]' : 'text-black/40'}`}>{card.note}</p>
-            </article>)}
-          </div>
-
-          <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.65fr)_minmax(290px,.75fr)]">
-            <div className="min-w-0 space-y-5">
-              <section className="rounded-2xl border border-black/[.06] bg-[#fbfaf8] p-5 sm:p-6">
-                <div className="flex items-center justify-between"><div><h2 className="font-serif text-[25px] tracking-[-.025em]">Воронка продаж</h2><p className="mt-1 text-[11px] text-black/40">Потенциал активных сделок · 3,25 млн ₽</p></div><button onClick={() => setActive('Сделки')} className="text-[11px] font-semibold text-terracotta">Все сделки →</button></div>
-                <div className="mt-6 grid gap-5 sm:grid-cols-2">
-                  {pipeline.map((stage) => <button key={stage.label} onClick={() => setActive('Сделки')} className="group text-left">
-                    <div className="flex items-end justify-between"><div><span className="text-xs font-semibold">{stage.label}</span><span className="ml-2 text-[10px] text-black/35">{stage.count}</span></div><span className="text-[11px] font-semibold">{stage.amount}</span></div>
-                    <div className="mt-2.5 h-2 overflow-hidden rounded-full bg-black/[.05]"><div className={`h-full rounded-full transition-all group-hover:opacity-75 ${stage.color}`} style={{ width: `${stage.width}%` }}/></div>
-                  </button>)}
-                </div>
-              </section>
-
-              <section className="overflow-hidden rounded-2xl border border-black/[.06] bg-[#fbfaf8]">
-                <div className="flex items-center justify-between px-5 py-5 sm:px-6"><div><h2 className="font-serif text-[25px] tracking-[-.025em]">Сделки в работе</h2><p className="mt-1 text-[11px] text-black/40">Ближайшие контакты с клиентами</p></div><button className="grid h-9 w-9 place-items-center rounded-full border border-black/10 text-black/45 hover:text-terracotta" aria-label="Добавить сделку"><Icon name="plus" className="h-4 w-4"/></button></div>
-                <div className="overflow-x-auto">
-                  <table className="w-full min-w-[720px] text-left">
-                    <thead className="border-y border-black/[.06] bg-[#f4f1ec]/70 text-[9px] uppercase tracking-[.12em] text-black/35"><tr><th className="px-6 py-3 font-semibold">Клиент</th><th className="px-4 py-3 font-semibold">Сумма</th><th className="px-4 py-3 font-semibold">Этап</th><th className="px-4 py-3 font-semibold">Следующий контакт</th><th className="w-10"/></tr></thead>
-                    <tbody className="divide-y divide-black/[.05]">
-                      {filteredDeals.map((deal) => <tr key={deal.name} className="group transition hover:bg-white"><td className="px-6 py-4"><div className="flex items-center gap-3"><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-full text-[10px] font-semibold ${deal.tone}`}>{deal.initials}</span><div><p className="text-[12px] font-semibold">{deal.name}{deal.hot && <span className="ml-1.5 text-terracotta">●</span>}</p><p className="mt-1 text-[10px] text-black/40">{deal.product}</p></div></div></td><td className="px-4 py-4 text-[12px] font-semibold">{formatMoney(deal.amount)}</td><td className="px-4 py-4"><span className="rounded-full bg-[#eee8df] px-2.5 py-1 text-[9px] font-medium text-black/60">{deal.stage}</span></td><td className="px-4 py-4"><span className={`inline-flex items-center gap-1.5 text-[10px] ${deal.next.startsWith('Сегодня') ? 'text-terracotta' : 'text-black/45'}`}><Icon name="clock" className="h-3.5 w-3.5"/>{deal.next}</span></td><td className="pr-4"><button className="text-black/25 transition group-hover:text-terracotta" aria-label={`Открыть сделку ${deal.name}`}><Icon name="arrow" className="h-4 w-4"/></button></td></tr>)}
-                    </tbody>
-                  </table>
-                  {filteredDeals.length === 0 && <div className="px-6 py-12 text-center text-xs text-black/40">Ничего не найдено. Попробуйте изменить запрос.</div>}
-                </div>
-              </section>
-            </div>
-
-            <aside className="space-y-5">
-              <section className="rounded-2xl bg-[#292925] p-5 text-white sm:p-6">
-                <div className="flex items-start justify-between"><div><p className="text-[10px] uppercase tracking-[.16em] text-white/40">Фокус дня</p><h2 className="mt-2 font-serif text-[24px]">Задачи</h2></div><span className="rounded-full bg-terracotta px-2.5 py-1 text-[10px] font-semibold">3 из 5</span></div>
-                <div className="mt-5 space-y-1">
-                  {tasks.map((task, index) => <button key={task.title} className="group flex w-full gap-3 rounded-xl px-2 py-3 text-left transition hover:bg-white/[.05]"><span className="mt-0.5 w-9 shrink-0 text-[10px] text-white/40">{task.time}</span><span className="mt-0.5 grid h-4 w-4 shrink-0 place-items-center rounded-full border border-white/25 group-hover:border-terracotta">{index === 0 && <span className="h-1.5 w-1.5 rounded-full bg-terracotta"/>}</span><span><span className="block text-[11px] font-medium text-white/90">{task.title}</span><span className="mt-1 block text-[9px] leading-4 text-white/35">{task.detail}</span></span></button>)}
-                </div>
-              </section>
-
-              <section className="rounded-2xl border border-black/[.06] bg-[#fbfaf8] p-5 sm:p-6">
-                <div className="flex items-center justify-between"><h2 className="font-serif text-[22px]">Ближайшая встреча</h2><Icon name="calendar" className="h-[18px] w-[18px] text-terracotta"/></div>
-                <div className="mt-5 rounded-xl bg-[#f0e8df] p-4"><div className="flex items-center gap-3"><span className="grid h-10 w-10 place-items-center rounded-full bg-white font-serif text-lg text-terracotta">14</span><div><p className="text-[10px] text-black/40">Сегодня · 14:30–15:00</p><p className="mt-1 text-[12px] font-semibold">Анна Воронова</p></div></div><p className="mt-3 text-[10px] leading-4 text-black/50">Консультация по каминокомплекту и монтажу в загородном доме.</p></div>
-                <div className="mt-3 grid grid-cols-2 gap-2"><a href="tel:+74951234567" className="flex items-center justify-center gap-1.5 rounded-lg bg-terracotta py-2.5 text-[10px] font-semibold text-white"><Icon name="phone" className="h-3.5 w-3.5"/>Позвонить</a><button className="rounded-lg border border-black/10 py-2.5 text-[10px] font-semibold hover:border-terracotta hover:text-terracotta">Открыть сделку</button></div>
-              </section>
-            </aside>
-          </div></>}
+          {active === 'Каталог'
+            ? <ManagerCatalog data={catalog} query={query} selectedCategory={selectedCategory} onCategoryChange={setSelectedCategory} onQueryChange={setQuery}/>
+            : active === 'Платежи'
+              ? <ManagerSales products={catalog.products} orders={orders} query={query}/>
+              : active === 'Аналитика'
+                ? <SalesAnalyticsPanel data={analytics}/>
+                : active === 'Клиенты' || active === 'Сделки' || active === 'Задачи'
+                  ? <ManagerCrm mode={active} workspace={workspace} query={query}/>
+                  : <ManagerOverview workspace={workspace} orders={orders} analytics={analytics} onOpen={(section) => { setActive(section); setQuery(''); }}/>
+          }
         </main>
       </section>
     </div>

@@ -76,14 +76,16 @@ export async function createPaymentOrder(order: {
   managerUserId?: string | null;
   auditActorUserId?: string | null;
   paymentProvider?: 'tbank' | 'yandex_split';
+  salesClientId?: string | null;
+  salesDealId?: string | null;
 }) {
   const client = await database().connect();
   try {
     await client.query('BEGIN');
     await client.query(
       `INSERT INTO payment_orders
-        (id, amount_kopecks, customer_name, customer_email, customer_phone, delivery_city, customer_comment, items, receipt, source, manager_user_id, payment_provider)
-       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12)`,
+        (id, amount_kopecks, customer_name, customer_email, customer_phone, delivery_city, customer_comment, items, receipt, source, manager_user_id, payment_provider, sales_client_id, sales_deal_id)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12, $13, $14)`,
       [
         order.id,
         order.amountKopecks,
@@ -97,6 +99,8 @@ export async function createPaymentOrder(order: {
         order.source || 'website',
         order.managerUserId || null,
         order.paymentProvider || 'tbank',
+        order.salesClientId || null,
+        order.salesDealId || null,
       ],
     );
     if (order.auditActorUserId) {
@@ -182,6 +186,23 @@ export async function applyPaymentNotification(
          SET status = $2::varchar, tbank_payment_id = COALESCE(tbank_payment_id, NULLIF($3::varchar, '')), bank_notification = $4::jsonb, updated_at = NOW()
          WHERE id = $1::uuid`,
         [orderId, normalizedStatus, paymentId, JSON.stringify(payload)],
+      );
+    }
+    if (normalizedStatus === 'confirmed') {
+      const deal = await client.query<{ id: string; manager_user_id: string; client_id: string; title: string }>(
+        `UPDATE sales_deals d SET stage='won',probability=100,closed_at=NOW(),updated_at=NOW()
+         FROM payment_orders o WHERE o.id=$1::uuid AND o.sales_deal_id=d.id AND d.stage<>'won'
+         RETURNING d.id,d.manager_user_id,d.client_id,d.title`, [orderId],
+      );
+      if (deal.rows[0]) await client.query(
+        `INSERT INTO sales_activities (manager_user_id,client_id,deal_id,action,description)
+         VALUES ($1,$2,$3,'payment.confirmed',$4)`,
+        [deal.rows[0].manager_user_id, deal.rows[0].client_id, deal.rows[0].id, `Сделка «${deal.rows[0].title}» оплачена`],
+      );
+    } else if (['cancelled', 'refunded', 'reversed'].includes(normalizedStatus)) {
+      await client.query(
+        `UPDATE sales_deals d SET stage='lost',probability=0,closed_at=NOW(),updated_at=NOW()
+         FROM payment_orders o WHERE o.id=$1::uuid AND o.sales_deal_id=d.id AND d.stage NOT IN ('won','lost')`, [orderId],
       );
     }
     await client.query('COMMIT');

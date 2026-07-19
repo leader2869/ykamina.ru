@@ -31,9 +31,11 @@ function requiresWebsiteProcessing(order: PaymentOrder) {
 export function ManagerSales({
   products,
   orders,
+  query = '',
 }: {
   products: AdminProduct[];
   orders: PaymentOrder[];
+  query?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -41,6 +43,8 @@ export function ManagerSales({
   const [items, setItems] = useState<{ productId: string; quantity: number }[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sourceFilter, setSourceFilter] = useState('all');
   const [result, setResult] = useState<{
     orderId: string;
     paymentUrl: string;
@@ -55,6 +59,19 @@ export function ManagerSales({
       ),
     [orders],
   );
+  const visibleOrders = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return orderedOrders.filter((order) => {
+      const haystack = `${order.orderNumber || ''} ${order.customerName} ${order.customerPhone} ${order.customerEmail} ${order.items.map((item) => item.name).join(' ')}`.toLowerCase();
+      const matchesQuery = !normalized || haystack.includes(normalized);
+      const matchesSource = sourceFilter === 'all' || order.source === sourceFilter;
+      const matchesStatus = statusFilter === 'all'
+        || (statusFilter === 'paid' && order.status === 'confirmed')
+        || (statusFilter === 'waiting' && ['created', 'payment_initialized', 'authorized'].includes(order.status))
+        || (statusFilter === 'problem' && ['payment_init_failed', 'payment_failed', 'cancelled', 'refunded', 'reversed'].includes(order.status));
+      return matchesQuery && matchesSource && matchesStatus;
+    });
+  }, [orderedOrders, query, sourceFilter, statusFilter]);
   const total = useMemo(
     () =>
       items.reduce(
@@ -159,11 +176,15 @@ export function ManagerSales({
             <h2 className="font-serif text-2xl">Все заказы</h2>
             <p className="mt-1 text-[10px] text-black/40">Всего: {orders.length}</p>
           </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="rounded-full border border-black/10 bg-white px-3 py-2 text-[10px]"><option value="all">Все источники</option><option value="website">Сайт</option><option value="manager">Менеджеры</option></select>
+            <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="rounded-full border border-black/10 bg-white px-3 py-2 text-[10px]"><option value="all">Все статусы</option><option value="paid">Оплачено</option><option value="waiting">Ожидают оплаты</option><option value="problem">Ошибки и отмены</option></select>
           {processingCount > 0 && (
             <span className="rounded-full bg-amber-100 px-3 py-1.5 text-[10px] font-semibold text-amber-800">
               Требуют обработки: {processingCount}
             </span>
           )}
+          </div>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[760px] text-left text-xs">
@@ -177,7 +198,7 @@ export function ManagerSales({
               </tr>
             </thead>
             <tbody className="divide-y divide-black/[.06]">
-              {orderedOrders.map((order) => {
+              {visibleOrders.map((order) => {
                 const needsProcessing = requiresWebsiteProcessing(order);
                 return (
                 <tr key={order.id} className={needsProcessing ? 'bg-amber-50/70' : undefined}>
@@ -187,6 +208,7 @@ export function ManagerSales({
                     </p>
                     <p className="mt-1 font-semibold">{order.customerName}</p>
                     <p className="mt-1 text-[10px] text-black/40">{order.customerPhone}</p>
+                    <p className="mt-1 text-[10px] text-black/35">{order.customerEmail}</p>
                   </td>
                   <td className="max-w-72 px-4 py-4 text-[10px] text-black/50">
                     {order.items.map((item) => `${item.name} × ${item.quantity}`).join(', ')}
@@ -202,6 +224,7 @@ export function ManagerSales({
                       >
                         {statusNames[order.status] || order.status}
                       </span>
+                      <span className="text-[9px] text-black/35">{order.paymentProvider === 'yandex_split' ? 'Яндекс Сплит' : 'Т-Банк'} · {new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(order.createdAt))}</span>
                       {needsProcessing && (
                         <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800">
                           <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
@@ -227,8 +250,8 @@ export function ManagerSales({
               })}
             </tbody>
           </table>
-          {orders.length === 0 && (
-            <p className="py-12 text-center text-sm text-black/40">Заказов пока нет</p>
+          {visibleOrders.length === 0 && (
+            <p className="py-12 text-center text-sm text-black/40">{orders.length ? 'По выбранным условиям платежей нет' : 'Платежей пока нет'}</p>
           )}
         </div>
       </section>

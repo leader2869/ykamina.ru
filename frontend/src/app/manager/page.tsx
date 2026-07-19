@@ -4,6 +4,7 @@ import { ManagerDashboard } from '@/components/manager-dashboard';
 import { getAdminDashboard } from '@/lib/admin';
 import { getCurrentUser } from '@/lib/auth';
 import { getPaymentOrders, getSalesAnalytics } from '@/lib/payment-orders';
+import { getManagerWorkspace } from '@/lib/manager-crm';
 
 export const metadata: Metadata = {
   title: 'Рабочий стол менеджера — Ykamina.ru',
@@ -16,8 +17,8 @@ export default async function ManagerPage() {
   if (user.role === 'super_admin') redirect('/admin');
   if (user.role !== 'sales_manager') redirect('/account?access=denied');
 
-  const [data, orders, analytics] = await Promise.all([
-    getAdminDashboard(), getPaymentOrders(250), getSalesAnalytics(user.id),
+  const [data, orders, analytics, workspace] = await Promise.all([
+    getAdminDashboard(), getPaymentOrders(250), getSalesAnalytics(), getManagerWorkspace(user.id),
   ]);
   return <ManagerDashboard
     user={{ fullName: user.fullName }}
@@ -29,5 +30,6 @@ export default async function ManagerPage() {
     }}
     orders={orders}
     analytics={analytics}
+    workspace={workspace}
   />;
 }
