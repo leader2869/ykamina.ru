@@ -56,21 +56,32 @@ export async function PATCH(request: Request, { params }: { params: { id: string
     if (invalidImage) return NextResponse.json({ error: 'Некорректная ссылка на изображение' }, { status: 400 });
 
     const dimensions = { ...(width !== null && { width }), ...(height !== null && { height }), ...(depth !== null && { depth }) };
-    const result = await getAdminPool().query<{ name: string }>(
-      `UPDATE products SET name = $1, description = $2, price = $3, old_price = $4,
-        category_id = $5, images = $6::jsonb, stock = $7, dimensions = $8::jsonb,
-        weight = $9, supplier_sku = $10, updated_at = NOW()
-       WHERE id = $11 RETURNING name`,
-      [name, description, price, oldPrice, categoryId, JSON.stringify(images), stock ?? 0, JSON.stringify(dimensions), weight, sku, params.id],
-    );
-    if (!result.rows[0]) return NextResponse.json({ error: 'Товар не найден' }, { status: 404 });
+    const client = await getAdminPool().connect();
     try {
-      await getAdminPool().query(
+      await client.query('BEGIN');
+      const result = await client.query<{ name: string }>(
+        `UPDATE products SET name = $1, description = $2, price = $3, old_price = $4,
+          category_id = $5, images = $6::jsonb, stock = $7, dimensions = $8::jsonb,
+          weight = $9, supplier_sku = $10, updated_at = NOW()
+         WHERE id = $11 RETURNING name`,
+        [name, description, price, oldPrice, categoryId, JSON.stringify(images), stock ?? 0, JSON.stringify(dimensions), weight, sku, params.id],
+      );
+      if (!result.rows[0]) {
+        await client.query('ROLLBACK');
+        return NextResponse.json({ error: 'Товар не найден' }, { status: 404 });
+      }
+      await client.query(
         `INSERT INTO admin_audit_log (actor_user_id, action, entity_type, entity_id, entity_label, metadata)
          VALUES ($1, 'product.updated', 'product', $2, $3, $4::jsonb)`,
-        [access.user.id, params.id, result.rows[0].name, JSON.stringify({ categoryId, source: 'sales_manager' })],
+        [access.user.id, params.id, result.rows[0].name, JSON.stringify({ categoryId, source: access.user.role })],
       );
-    } catch (error) { console.error('Product edit audit failed:', error); }
+      await client.query('COMMIT');
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
     revalidatePath('/manager'); revalidatePath('/admin'); revalidatePath('/catalog'); revalidatePath(`/catalog/${params.id}`);
     return NextResponse.json({ data: await getAdminProduct(params.id) });
   } catch (error) {

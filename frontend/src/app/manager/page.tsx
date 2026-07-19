@@ -17,7 +17,7 @@ export default async function ManagerPage() {
   if (user.role !== 'sales_manager') redirect('/account?access=denied');
 
   const [data, orders, analytics] = await Promise.all([
-    getAdminDashboard(), getPaymentOrders(100, user.id), getSalesAnalytics(user.id),
+    getAdminDashboard(), getPaymentOrders(250), getSalesAnalytics(user.id),
   ]);
   return <ManagerDashboard
     user={{ fullName: user.fullName }}

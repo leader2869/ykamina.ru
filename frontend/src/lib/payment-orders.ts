@@ -74,27 +74,55 @@ export async function createPaymentOrder(order: {
   receipt: TBankReceipt;
   source?: 'website' | 'manager';
   managerUserId?: string | null;
+  auditActorUserId?: string | null;
   paymentProvider?: 'tbank' | 'yandex_split';
 }) {
-  await database().query(
-    `INSERT INTO payment_orders
-      (id, amount_kopecks, customer_name, customer_email, customer_phone, delivery_city, customer_comment, items, receipt, source, manager_user_id, payment_provider)
-     VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12)`,
-    [
-      order.id,
-      order.amountKopecks,
-      order.name,
-      order.email,
-      order.phone,
-      order.city,
-      order.comment || null,
-      JSON.stringify(order.items),
-      JSON.stringify(order.receipt),
-      order.source || 'website',
-      order.managerUserId || null,
-      order.paymentProvider || 'tbank',
-    ],
-  );
+  const client = await database().connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `INSERT INTO payment_orders
+        (id, amount_kopecks, customer_name, customer_email, customer_phone, delivery_city, customer_comment, items, receipt, source, manager_user_id, payment_provider)
+       VALUES ($1::uuid, $2, $3, $4, $5, $6, $7, $8::jsonb, $9::jsonb, $10, $11, $12)`,
+      [
+        order.id,
+        order.amountKopecks,
+        order.name,
+        order.email,
+        order.phone,
+        order.city,
+        order.comment || null,
+        JSON.stringify(order.items),
+        JSON.stringify(order.receipt),
+        order.source || 'website',
+        order.managerUserId || null,
+        order.paymentProvider || 'tbank',
+      ],
+    );
+    if (order.auditActorUserId) {
+      await client.query(
+        `INSERT INTO admin_audit_log
+          (actor_user_id, action, entity_type, entity_id, entity_label, metadata)
+         VALUES ($1, 'order.created', 'payment_order', $2, $3, $4::jsonb)`,
+        [
+          order.auditActorUserId,
+          order.id,
+          `Заказ для ${order.name}`,
+          JSON.stringify({
+            source: order.source || 'website',
+            amountKopecks: order.amountKopecks,
+            itemsCount: order.items.reduce((sum, item) => sum + item.quantity, 0),
+          }),
+        ],
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function markPaymentInitialized(
