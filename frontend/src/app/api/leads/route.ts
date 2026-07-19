@@ -86,7 +86,7 @@ export async function POST(request: Request) {
         clientId = String(existing.rows[0].id);
         managerId = String(existing.rows[0].manager_user_id);
         await connection.query(
-          `UPDATE sales_clients SET full_name=$1, phone=$2, source='website', notes=CASE WHEN notes IS NULL OR notes='' THEN $3 ELSE notes || E'\n' || $3 END, updated_at=NOW()
+          `UPDATE sales_clients SET full_name=$1, phone=$2, source='website', notes=CASE WHEN notes IS NULL OR notes='' THEN $3 ELSE notes || E'\n' || $3 END, next_contact_at=NOW(), updated_at=NOW()
            WHERE id=$4`,
           [name, phone, note, clientId],
         );
@@ -113,20 +113,28 @@ export async function POST(request: Request) {
         clientId = String(created.rows[0].id);
       }
 
+      const deal = await connection.query<{ id: string }>(
+        `INSERT INTO sales_deals (manager_user_id, client_id, title, stage, probability, product_interest, notes, next_contact_at)
+         VALUES ($1,$2,$3,'new',20,$4,$5,NOW()) RETURNING id`,
+        [managerId, clientId, `Заявка с сайта: ${interest}`, interest, note],
+      );
+      const dealId = String(deal.rows[0].id);
+
       await connection.query(
-        `INSERT INTO sales_tasks (manager_user_id, client_id, title, description, due_at, priority)
-         VALUES ($1,$2,$3,$4,NOW() + INTERVAL '15 minutes','high')`,
+        `INSERT INTO sales_tasks (manager_user_id, client_id, deal_id, title, description, due_at, priority)
+         VALUES ($1,$2,$3,$4,$5,NOW() + INTERVAL '15 minutes','high')`,
         [
           managerId,
           clientId,
+          dealId,
           `Связаться с ${name}`,
           `Новая заявка с сайта: ${interest}. Телефон: ${phone}`,
         ],
       );
       await connection.query(
-        `INSERT INTO sales_activities (manager_user_id, client_id, action, description)
-         VALUES ($1,$2,'website.lead_created',$3)`,
-        [managerId, clientId, `Получена заявка с сайта от ${name}: ${interest}`],
+        `INSERT INTO sales_activities (manager_user_id, client_id, deal_id, action, description)
+         VALUES ($1,$2,$3,'website.lead_created',$4)`,
+        [managerId, clientId, dealId, `Получена новая сделка с сайта от ${name}: ${interest}`],
       );
       await connection.query('COMMIT');
     } catch (error) {
