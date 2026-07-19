@@ -19,6 +19,7 @@ releases_dir="$app_root/releases"
 release_dir="$releases_dir/$commit_sha"
 current_link="$app_root/current"
 staging_dir="$app_root/.staging-$commit_sha-$$"
+superseded_dir="$app_root/.superseded-$commit_sha-$$"
 certificate_file="/etc/ssl/certs/ykamina-timeweb-db.crt"
 previous_release="$(readlink -f "$current_link" 2>/dev/null || true)"
 
@@ -28,6 +29,7 @@ fi
 
 cleanup() {
   rm -rf -- "$staging_dir"
+  rm -rf -- "$superseded_dir" || true
   rm -f -- "$archive_file"
 }
 trap cleanup EXIT
@@ -58,7 +60,7 @@ env NODE_EXTRA_CA_CERTS="$certificate_file" npm run db:migrate
 popd >/dev/null
 
 if [[ -e "$release_dir" && "$release_dir" != "$previous_release" ]]; then
-  rm -rf -- "$release_dir"
+  mv "$release_dir" "$superseded_dir"
 fi
 mv "$staging_dir" "$release_dir"
 
