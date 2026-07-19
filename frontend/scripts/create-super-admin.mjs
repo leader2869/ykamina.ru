@@ -11,7 +11,7 @@ const phone = process.env.SUPER_ADMIN_PHONE?.trim() || '+7 000 000-00-00';
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL не задан');
 if (!email) throw new Error('Задайте SUPER_ADMIN_EMAIL');
-if (!password || password.length < 12) throw new Error('SUPER_ADMIN_PASSWORD должен содержать минимум 12 символов');
+if (!password || password.length < 8) throw new Error('SUPER_ADMIN_PASSWORD должен содержать минимум 8 символов');
 
 const salt = randomBytes(16).toString('hex');
 const passwordHash = `${salt}:${scryptSync(password, salt, 64).toString('hex')}`;
