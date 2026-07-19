@@ -28,7 +28,7 @@ export type HeaderCategoryPreview = { images: string[] };
 const globalForDatabase = global as typeof globalThis & { catalogPool?: Pool };
 const databaseConnectionString = getDatabaseConnectionString();
 const pool = databaseConnectionString
-  ? (globalForDatabase.catalogPool ??= new Pool({ connectionString: databaseConnectionString }))
+  ? (globalForDatabase.catalogPool ??= new Pool({ connectionString: databaseConnectionString, max: 2, idleTimeoutMillis: 10_000 }))
   : null;
 
 function mapRow(row: DatabaseRow): Product {

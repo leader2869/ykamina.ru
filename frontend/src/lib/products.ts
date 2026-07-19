@@ -13,7 +13,12 @@ export type Product = {
   stock: number;
   article?: string;
   dimensionsData?: { width?: number; height?: number; depth?: number };
-  availability?: { moscow?: string | null; saintPetersburg?: string | null };
+  availability?: {
+    moscow?: string | null;
+    saintPetersburg?: string | null;
+    wholesalePrice?: number | null;
+    recommendedRetailPrice?: number | null;
+  };
   isPublished?: boolean;
   visibilityComment?: string | null;
   specifications?: Record<string, Record<string, string>>;

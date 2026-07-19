@@ -4,7 +4,7 @@ import { getDatabaseConnectionString } from '@/lib/database';
 const globalForCrm = global as typeof globalThis & { managerCrmPool?: Pool };
 const connectionString = getDatabaseConnectionString();
 const pool = connectionString
-  ? (globalForCrm.managerCrmPool ??= new Pool({ connectionString }))
+  ? (globalForCrm.managerCrmPool ??= new Pool({ connectionString, max: 2, idleTimeoutMillis: 10_000 }))
   : null;
 
 function database() {
@@ -37,6 +37,7 @@ export type SalesDeal = {
   title: string;
   stage: string;
   amountKopecks: number;
+  purchaseCostKopecks: number | null;
   probability: number;
   productInterest: string | null;
   notes: string | null;
@@ -80,6 +81,22 @@ export type ManagerWorkspace = {
 const iso = (value: Date | string | null) => value ? new Date(value).toISOString() : null;
 
 export async function getManagerWorkspace(managerUserId: string): Promise<ManagerWorkspace> {
+  await database().query(
+    `UPDATE sales_deals d
+     SET stage='won', probability=100, closed_at=COALESCE(d.closed_at, NOW()), updated_at=NOW()
+     FROM payment_orders o
+     WHERE o.sales_deal_id=d.id AND o.manager_user_id=$1 AND o.status='confirmed' AND d.stage<>'won'`,
+    [managerUserId],
+  );
+  const purchaseCostColumn = await database().query<{ exists: boolean }>(
+    `SELECT EXISTS (
+      SELECT 1 FROM information_schema.columns
+      WHERE table_schema='public' AND table_name='sales_deals' AND column_name='purchase_cost_kopecks'
+    ) AS exists`,
+  );
+  const purchaseCostSelect = purchaseCostColumn.rows[0]?.exists
+    ? 'd.purchase_cost_kopecks'
+    : 'NULL::bigint AS purchase_cost_kopecks';
   const [clientsResult, dealsResult, tasksResult, activitiesResult] = await Promise.all([
     database().query<{
       id: string; full_name: string; phone: string | null; email: string | null; city: string | null;
@@ -98,12 +115,12 @@ export async function getManagerWorkspace(managerUserId: string): Promise<Manage
     ),
     database().query<{
       id: string; client_id: string; client_name: string; client_phone: string | null;
-      title: string; stage: string; amount_kopecks: string; probability: number;
+      title: string; stage: string; amount_kopecks: string; purchase_cost_kopecks: string | null; probability: number;
       product_interest: string | null; notes: string | null; expected_close_date: string | null;
       next_contact_at: Date | null; created_at: Date; updated_at: Date;
     }>(
       `SELECT d.id, d.client_id, c.full_name AS client_name, c.phone AS client_phone,
-        d.title, d.stage, d.amount_kopecks, d.probability, d.product_interest, d.notes,
+        d.title, d.stage, d.amount_kopecks, ${purchaseCostSelect}, d.probability, d.product_interest, d.notes,
         d.expected_close_date, d.next_contact_at, d.created_at, d.updated_at
        FROM sales_deals d JOIN sales_clients c ON c.id = d.client_id
        WHERE d.manager_user_id = $1 ORDER BY d.updated_at DESC`,
@@ -148,7 +165,9 @@ export async function getManagerWorkspace(managerUserId: string): Promise<Manage
     deals: dealsResult.rows.map((row) => ({
       id: String(row.id), clientId: String(row.client_id), clientName: row.client_name,
       clientPhone: row.client_phone, title: row.title, stage: row.stage,
-      amountKopecks: Number(row.amount_kopecks), probability: row.probability,
+      amountKopecks: Number(row.amount_kopecks),
+      purchaseCostKopecks: row.purchase_cost_kopecks === null ? null : Number(row.purchase_cost_kopecks),
+      probability: row.probability,
       productInterest: row.product_interest, notes: row.notes,
       expectedCloseDate: row.expected_close_date, nextContactAt: iso(row.next_contact_at),
       createdAt: iso(row.created_at)!, updatedAt: iso(row.updated_at)!,
