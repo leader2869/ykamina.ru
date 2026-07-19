@@ -13,7 +13,12 @@ export type AdminProduct = {
   image: string | null;
   price: number;
   stock: number;
-  availability: { moscow?: string | null; saintPetersburg?: string | null } | null;
+  availability: {
+    moscow?: string | null;
+    saintPetersburg?: string | null;
+    wholesalePrice?: number | null;
+    recommendedRetailPrice?: number | null;
+  } | null;
   isPublished: boolean;
   visibilityComment: string | null;
   updatedAt: string;
@@ -44,6 +49,7 @@ export type AdminUser = {
   email: string;
   role: 'customer' | 'sales_manager' | 'super_admin';
   isActive: boolean;
+  lastLoginAt: string | null;
   createdAt: string;
 };
 
@@ -59,6 +65,7 @@ export type ImportRun = {
 
 export type AuditEvent = {
   id: string;
+  actorUserId: string | null;
   actorName: string;
   action: string;
   entityType: string;
@@ -218,8 +225,10 @@ export async function getAdminDashboard(filters: { category?: string; query?: st
         ORDER BY CASE WHEN c.parent_id IS NULL THEN 0 ELSE 1 END, c.name`),
       pool.query<{
         id: string; full_name: string; email: string; role: AdminUser['role'];
-        is_active: boolean; created_at: string;
-      }>(`SELECT id, full_name, email, role, is_active, created_at
+        is_active: boolean; last_login_at: string | null; created_at: string;
+      }>(`SELECT id, full_name, email, role, is_active,
+          (SELECT MAX(s.created_at) FROM user_sessions s WHERE s.user_id = users.id) AS last_login_at,
+          created_at
         FROM users ORDER BY created_at DESC LIMIT 50`),
       pool.query<{
         id: string; supplier: string | null; status: ImportRun['status']; created_count: number;
@@ -233,14 +242,15 @@ export async function getAdminDashboard(filters: { category?: string; query?: st
     let audit: AuditEvent[] = [];
     try {
       const auditResult = await pool.query<{
-        id: string; actor_name: string | null; action: string; entity_type: string;
+        id: string; actor_user_id: string | null; actor_name: string | null; action: string; entity_type: string;
         entity_label: string; created_at: string;
-      }>(`SELECT a.id, u.full_name AS actor_name, a.action, a.entity_type,
+      }>(`SELECT a.id, a.actor_user_id, u.full_name AS actor_name, a.action, a.entity_type,
           a.entity_label, a.created_at
         FROM admin_audit_log a LEFT JOIN users u ON u.id = a.actor_user_id
-        ORDER BY a.created_at DESC LIMIT 20`);
+        ORDER BY a.created_at DESC LIMIT 100`);
       audit = auditResult.rows.map((row) => ({
-        id: String(row.id), actorName: row.actor_name || 'Система', action: row.action,
+        id: String(row.id), actorUserId: row.actor_user_id ? String(row.actor_user_id) : null,
+        actorName: row.actor_name || 'Система', action: row.action,
         entityType: row.entity_type, entityLabel: row.entity_label, createdAt: row.created_at,
       }));
     } catch {
@@ -272,7 +282,7 @@ export async function getAdminDashboard(filters: { category?: string; query?: st
       })),
       users: usersResult.rows.map((row) => ({
         id: String(row.id), fullName: row.full_name, email: row.email, role: row.role,
-        isActive: row.is_active, createdAt: row.created_at,
+        isActive: row.is_active, lastLoginAt: row.last_login_at, createdAt: row.created_at,
       })),
       imports: importsResult.rows.map((row) => ({
         id: String(row.id), supplier: row.supplier || 'Неизвестный поставщик', status: row.status,

@@ -2,11 +2,16 @@
 
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { getCurrentUser, UserRole } from '@/lib/auth';
+import { getCurrentUser, hashPassword, UserRole } from '@/lib/auth';
 import { getAdminPool } from '@/lib/admin';
 
 const adminCatalogUrl = (params: Record<string, string>) => {
   const search = new URLSearchParams({ section: 'catalog', ...params });
+  return `/admin?${search.toString()}`;
+};
+
+const adminTeamUrl = (params: Record<string, string>) => {
+  const search = new URLSearchParams({ section: 'team', ...params });
   return `/admin?${search.toString()}`;
 };
 
@@ -222,4 +227,85 @@ export async function updateUserAccess(formData: FormData) {
       { role, isActive });
   }
   revalidatePath('/admin');
+}
+
+export async function createUser(formData: FormData) {
+  const actor = await requireSuperAdmin();
+  const fullName = String(formData.get('fullName') || '').trim();
+  const email = String(formData.get('email') || '').trim().toLowerCase();
+  const password = String(formData.get('password') || '');
+  const role = String(formData.get('role') || '') as UserRole;
+  const isActive = formData.get('isActive') !== 'false';
+  const allowedRoles: UserRole[] = ['customer', 'sales_manager', 'super_admin'];
+  if (fullName.length < 2) redirect(adminTeamUrl({ userError: 'Укажите имя пользователя.' }));
+  if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254) redirect(adminTeamUrl({ userError: 'Укажите корректный email.' }));
+  if (password.length < 8) redirect(adminTeamUrl({ userError: 'Пароль должен содержать минимум 8 символов.' }));
+  if (!allowedRoles.includes(role)) redirect(adminTeamUrl({ userError: 'Выберите роль пользователя.' }));
+
+  let user: { id: string; full_name: string };
+  try {
+    const result = await getAdminPool().query<{ id: string; full_name: string }>(
+      `INSERT INTO users (role, full_name, phone, email, birth_date, delivery_address, password_hash, is_active)
+       VALUES ($1, $2, '', $3, DATE '1970-01-01', '', $4, $5)
+       RETURNING id, full_name`,
+      [role, fullName, email, hashPassword(password), isActive],
+    );
+    user = result.rows[0];
+  } catch (error) {
+    if ((error as { code?: string }).code === '23505') redirect(adminTeamUrl({ userError: 'Пользователь с таким email уже существует.' }));
+    throw error;
+  }
+  await writeAudit(actor.id, 'user.created', 'user', user.id, user.full_name, { role, isActive, email });
+  revalidatePath('/admin');
+  redirect(adminTeamUrl({ userCreated: '1' }));
+}
+
+export async function updateUser(formData: FormData) {
+  const actor = await requireSuperAdmin();
+  const userId = String(formData.get('userId') || '');
+  const fullName = String(formData.get('fullName') || '').trim();
+  const email = String(formData.get('email') || '').trim().toLowerCase();
+  const password = String(formData.get('password') || '');
+  const role = String(formData.get('role') || '') as UserRole;
+  const isActive = formData.get('isActive') === 'true';
+  const allowedRoles: UserRole[] = ['customer', 'sales_manager', 'super_admin'];
+  if (!/^\d+$/.test(userId)) redirect(adminTeamUrl({ userError: 'Пользователь не найден.' }));
+  if (fullName.length < 2) redirect(adminTeamUrl({ userError: 'Укажите имя пользователя.' }));
+  if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254) redirect(adminTeamUrl({ userError: 'Укажите корректный email.' }));
+  if (password && password.length < 8) redirect(adminTeamUrl({ userError: 'Новый пароль должен содержать минимум 8 символов.' }));
+  const isCurrentUser = userId === actor.id;
+  if (!isCurrentUser && !allowedRoles.includes(role)) redirect(adminTeamUrl({ userError: 'Выберите роль пользователя.' }));
+  const nextRole = isCurrentUser ? actor.role : role;
+  const nextIsActive = isCurrentUser ? true : isActive;
+
+  try {
+    const result = await getAdminPool().query<{ full_name: string }>(
+      `UPDATE users SET full_name = $1, email = $2, role = $3, is_active = $4,
+         password_hash = CASE WHEN $5::text = '' THEN password_hash ELSE $5 END,
+         updated_at = NOW()
+       WHERE id = $6 RETURNING full_name`,
+      [fullName, email, nextRole, nextIsActive, password ? hashPassword(password) : '', userId],
+    );
+    if (!result.rows[0]) redirect(adminTeamUrl({ userError: 'Пользователь не найден.' }));
+    await writeAudit(actor.id, 'user.updated', 'user', userId, result.rows[0].full_name,
+      { role: nextRole, isActive: nextIsActive, email, passwordChanged: Boolean(password) });
+  } catch (error) {
+    if ((error as { code?: string }).code === '23505') redirect(adminTeamUrl({ userError: 'Пользователь с таким email уже существует.' }));
+    throw error;
+  }
+  revalidatePath('/admin');
+  redirect(adminTeamUrl({ userUpdated: '1' }));
+}
+
+export async function deleteUser(formData: FormData) {
+  const actor = await requireSuperAdmin();
+  const userId = String(formData.get('userId') || '');
+  if (!/^\d+$/.test(userId) || userId === actor.id) redirect(adminTeamUrl({ userError: 'Собственную учётную запись удалить нельзя.' }));
+  const result = await getAdminPool().query<{ full_name: string }>(
+    'DELETE FROM users WHERE id = $1 RETURNING full_name', [userId],
+  );
+  if (!result.rows[0]) redirect(adminTeamUrl({ userError: 'Пользователь не найден.' }));
+  await writeAudit(actor.id, 'user.deleted', 'user', userId, result.rows[0].full_name);
+  revalidatePath('/admin');
+  redirect(adminTeamUrl({ userDeleted: '1' }));
 }

@@ -32,6 +32,12 @@ export async function createSession(userId: string | number) {
   return token;
 }
 
+export async function destroyCurrentSession() {
+  const token = cookies().get(sessionCookieName)?.value;
+  if (token && pool) await pool.query('DELETE FROM user_sessions WHERE token_hash = $1', [tokenHash(token)]);
+  cookies().delete(sessionCookieName);
+}
+
 export function sessionCookie(token: string, request: Request) {
   const forwardedProtocol = request.headers.get('x-forwarded-proto')?.split(',')[0]?.trim().toLowerCase();
   const secure = forwardedProtocol ? forwardedProtocol === 'https' : new URL(request.url).protocol === 'https:';
