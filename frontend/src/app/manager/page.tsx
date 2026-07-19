@@ -1,9 +1,9 @@
 import type { Metadata } from 'next';
 import { redirect } from 'next/navigation';
 import { ManagerDashboard } from '@/components/manager-dashboard';
-import { getAdminDashboard } from '@/lib/admin';
+import { getAdminDashboard, getProductCompatibilities } from '@/lib/admin';
 import { getCurrentUser } from '@/lib/auth';
-import { getPaymentOrders, getSalesAnalytics } from '@/lib/payment-orders';
+import { getPaymentOrders } from '@/lib/payment-orders';
 import { getManagerWorkspace } from '@/lib/manager-crm';
 
 export const metadata: Metadata = {
@@ -17,19 +17,19 @@ export default async function ManagerPage() {
   if (user.role === 'super_admin') redirect('/admin');
   if (user.role !== 'sales_manager') redirect('/account?access=denied');
 
-  const [data, orders, analytics, workspace] = await Promise.all([
-    getAdminDashboard(), getPaymentOrders(250), getSalesAnalytics(), getManagerWorkspace(user.id),
+  const [data, orders, workspace, compatibilities] = await Promise.all([
+    getAdminDashboard(), getPaymentOrders(250), getManagerWorkspace(user.id), getProductCompatibilities(),
   ]);
   return <ManagerDashboard
-    user={{ fullName: user.fullName }}
+    user={{ id: user.id, fullName: user.fullName }}
     catalog={{
       databaseConnected: data.databaseConnected,
       metrics: { products: data.metrics.products, published: data.metrics.published },
       products: data.products,
       categories: data.categories,
+      compatibilities,
     }}
     orders={orders}
-    analytics={analytics}
     workspace={workspace}
   />;
 }

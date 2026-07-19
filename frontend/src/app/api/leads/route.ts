@@ -113,20 +113,35 @@ export async function POST(request: Request) {
         clientId = String(created.rows[0].id);
       }
 
-      await connection.query(
-        `INSERT INTO sales_tasks (manager_user_id, client_id, title, description, due_at, priority)
-         VALUES ($1,$2,$3,$4,NOW() + INTERVAL '15 minutes','high')`,
+      const deal = await connection.query<{ id: string }>(
+        `INSERT INTO sales_deals
+          (manager_user_id, client_id, title, stage, amount_kopecks, probability, product_interest, notes, next_contact_at)
+         VALUES ($1,$2,$3,'new',0,20,$4,$5,NOW()) RETURNING id`,
         [
           managerId,
           clientId,
+          `Заявка с сайта: ${name}`.slice(0, 240),
+          interest,
+          note,
+        ],
+      );
+      const dealId = String(deal.rows[0].id);
+
+      await connection.query(
+        `INSERT INTO sales_tasks (manager_user_id, client_id, deal_id, title, description, due_at, priority)
+         VALUES ($1,$2,$3,$4,$5,NOW() + INTERVAL '15 minutes','high')`,
+        [
+          managerId,
+          clientId,
+          dealId,
           `Связаться с ${name}`,
           `Новая заявка с сайта: ${interest}. Телефон: ${phone}`,
         ],
       );
       await connection.query(
-        `INSERT INTO sales_activities (manager_user_id, client_id, action, description)
-         VALUES ($1,$2,'website.lead_created',$3)`,
-        [managerId, clientId, `Получена заявка с сайта от ${name}: ${interest}`],
+        `INSERT INTO sales_activities (manager_user_id, client_id, deal_id, action, description)
+         VALUES ($1,$2,$3,'website.lead_created',$4)`,
+        [managerId, clientId, dealId, `Получена заявка с сайта от ${name}: ${interest}`],
       );
       await connection.query('COMMIT');
     } catch (error) {

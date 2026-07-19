@@ -8,7 +8,7 @@ export type CurrentUser = { id: string; role: UserRole; fullName: string; phone:
 
 const globalForAuth = global as typeof globalThis & { authPool?: Pool };
 const databaseConnectionString = getDatabaseConnectionString();
-const pool = databaseConnectionString ? (globalForAuth.authPool ??= new Pool({ connectionString: databaseConnectionString })) : null;
+const pool = databaseConnectionString ? (globalForAuth.authPool ??= new Pool({ connectionString: databaseConnectionString, max: 2, idleTimeoutMillis: 10_000 })) : null;
 export const sessionCookieName = 'ykamina_session';
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();

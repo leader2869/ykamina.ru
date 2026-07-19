@@ -30,7 +30,10 @@ export async function POST(request: Request) {
     const comment = typeof body.comment === 'string' ? body.comment.trim().slice(0, 2000) : '';
     if (!name || !email || !phone || !city) return NextResponse.json({ error: 'Заполните контактные данные' }, { status: 400 });
 
-    const storedItems = products.map((product, index) => ({ productId: product!.id, name: product!.name, priceKopecks: Math.round(product!.price * 100), quantity: items[index].quantity }));
+    const storedItems = products.map((product, index) => {
+      const purchaseCostKopecks = Math.round(Number(product!.availability?.wholesalePrice || 0) * 100);
+      return { productId: product!.id, name: product!.name, priceKopecks: Math.round(product!.price * 100), quantity: items[index].quantity, ...(purchaseCostKopecks > 0 ? { purchaseCostKopecks } : {}) };
+    });
     const receipt = buildTBankReceipt(storedItems, { email, phone });
     await createPaymentOrder({ id: orderId, amountKopecks: amount, name, email, phone, city, comment, items: storedItems, receipt, paymentProvider: 'yandex_split' });
     try {

@@ -7,6 +7,8 @@ const databaseConnectionString = getDatabaseConnectionString();
 const pool = databaseConnectionString
   ? (globalForPayments.paymentOrdersPool ??= new Pool({
       connectionString: databaseConnectionString,
+      max: 2,
+      idleTimeoutMillis: 10_000,
     }))
   : null;
 
@@ -15,6 +17,9 @@ export type StoredOrderItem = {
   name: string;
   priceKopecks: number;
   quantity: number;
+  listPriceKopecks?: number;
+  purchaseCostKopecks?: number;
+  discountKopecks?: number;
 };
 
 export type PaymentOrder = {
@@ -44,6 +49,9 @@ export type SalesAnalytics = {
   orders: number;
   paidOrders: number;
   revenueKopecks: number;
+  purchaseCostKopecks: number;
+  grossProfitKopecks: number;
+  paidOrdersMissingCost: number;
   averageCheckKopecks: number;
   awaitingPayment: number;
   website: { orders: number; paidOrders: number; revenueKopecks: number };
@@ -54,6 +62,7 @@ export type SalesAnalytics = {
     orders: number;
     paidOrders: number;
     revenueKopecks: number;
+    grossProfitKopecks: number;
   }[];
 };
 
@@ -298,6 +307,9 @@ export async function getSalesAnalytics(managerUserId?: string): Promise<SalesAn
       orders: string;
       paid_orders: string;
       revenue: string;
+      purchase_cost: string;
+      gross_profit: string;
+      missing_cost: string;
       awaiting_payment: string;
       website_orders: string;
       website_paid: string;
@@ -306,9 +318,23 @@ export async function getSalesAnalytics(managerUserId?: string): Promise<SalesAn
       manager_paid: string;
       manager_revenue: string;
     }>(
-      `SELECT COUNT(*) AS orders,
+      `WITH financial_orders AS (
+        SELECT o.*,
+          CASE WHEN NOT EXISTS (
+            SELECT 1 FROM jsonb_array_elements(o.items) item
+            WHERE NOT (item ? 'purchaseCostKopecks') OR COALESCE((item->>'purchaseCostKopecks')::bigint, 0) <= 0
+          ) THEN (
+            SELECT COALESCE(SUM((item->>'purchaseCostKopecks')::bigint * (item->>'quantity')::integer), 0)
+            FROM jsonb_array_elements(o.items) item
+          ) ELSE NULL END AS purchase_cost
+        FROM payment_orders o
+      )
+      SELECT COUNT(*) AS orders,
         COUNT(*) FILTER (WHERE o.status = 'confirmed') AS paid_orders,
         COALESCE(SUM(o.amount_kopecks) FILTER (WHERE o.status = 'confirmed'), 0) AS revenue,
+        COALESCE(SUM(o.purchase_cost) FILTER (WHERE o.status = 'confirmed' AND o.purchase_cost IS NOT NULL), 0) AS purchase_cost,
+        COALESCE(SUM(o.amount_kopecks - o.purchase_cost) FILTER (WHERE o.status = 'confirmed' AND o.purchase_cost IS NOT NULL), 0) AS gross_profit,
+        COUNT(*) FILTER (WHERE o.status = 'confirmed' AND o.purchase_cost IS NULL) AS missing_cost,
         COUNT(*) FILTER (WHERE o.status IN ('created', 'payment_initialized')) AS awaiting_payment,
         COUNT(*) FILTER (WHERE o.source = 'website') AS website_orders,
         COUNT(*) FILTER (WHERE o.source = 'website' AND o.status = 'confirmed') AS website_paid,
@@ -316,7 +342,7 @@ export async function getSalesAnalytics(managerUserId?: string): Promise<SalesAn
         COUNT(*) FILTER (WHERE o.source = 'manager') AS manager_orders,
         COUNT(*) FILTER (WHERE o.source = 'manager' AND o.status = 'confirmed') AS manager_paid,
         COALESCE(SUM(o.amount_kopecks) FILTER (WHERE o.source = 'manager' AND o.status = 'confirmed'), 0) AS manager_revenue
-      FROM payment_orders o ${filter}`,
+      FROM financial_orders o ${filter}`,
       params,
     ),
     database().query<{
@@ -325,11 +351,24 @@ export async function getSalesAnalytics(managerUserId?: string): Promise<SalesAn
       orders: string;
       paid_orders: string;
       revenue: string;
+      gross_profit: string;
     }>(
-      `SELECT u.id, u.full_name AS name,
+      `WITH financial_orders AS (
+        SELECT o.*,
+          CASE WHEN NOT EXISTS (
+            SELECT 1 FROM jsonb_array_elements(o.items) item
+            WHERE NOT (item ? 'purchaseCostKopecks') OR COALESCE((item->>'purchaseCostKopecks')::bigint, 0) <= 0
+          ) THEN (
+            SELECT COALESCE(SUM((item->>'purchaseCostKopecks')::bigint * (item->>'quantity')::integer), 0)
+            FROM jsonb_array_elements(o.items) item
+          ) ELSE NULL END AS purchase_cost
+        FROM payment_orders o
+      )
+      SELECT u.id, u.full_name AS name,
         COUNT(o.id) AS orders, COUNT(o.id) FILTER (WHERE o.status = 'confirmed') AS paid_orders,
-        COALESCE(SUM(o.amount_kopecks) FILTER (WHERE o.status = 'confirmed'), 0) AS revenue
-      FROM payment_orders o JOIN users u ON u.id = o.manager_user_id
+        COALESCE(SUM(o.amount_kopecks) FILTER (WHERE o.status = 'confirmed'), 0) AS revenue,
+        COALESCE(SUM(o.amount_kopecks - o.purchase_cost) FILTER (WHERE o.status = 'confirmed' AND o.purchase_cost IS NOT NULL), 0) AS gross_profit
+      FROM financial_orders o JOIN users u ON u.id = o.manager_user_id
       ${filter} GROUP BY u.id ORDER BY revenue DESC`,
       params,
     ),
@@ -341,6 +380,9 @@ export async function getSalesAnalytics(managerUserId?: string): Promise<SalesAn
     orders: Number(row.orders),
     paidOrders,
     revenueKopecks,
+    purchaseCostKopecks: Number(row.purchase_cost),
+    grossProfitKopecks: Number(row.gross_profit),
+    paidOrdersMissingCost: Number(row.missing_cost),
     averageCheckKopecks: paidOrders ? Math.round(revenueKopecks / paidOrders) : 0,
     awaitingPayment: Number(row.awaiting_payment),
     website: {
@@ -359,6 +401,7 @@ export async function getSalesAnalytics(managerUserId?: string): Promise<SalesAn
       orders: Number(item.orders),
       paidOrders: Number(item.paid_orders),
       revenueKopecks: Number(item.revenue),
+      grossProfitKopecks: Number(item.gross_profit),
     })),
   };
 }
