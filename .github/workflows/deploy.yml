@@ -28,6 +28,15 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run build
+      - name: Package verified release
+        working-directory: .
+        run: |
+          tar --exclude=.git --exclude=frontend/node_modules --exclude=frontend/.env.local --exclude=release.tgz -czf release.tgz .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: production-release
+          path: release.tgz
+          retention-days: 1
 
   deploy:
     needs: verify
@@ -36,6 +45,10 @@ jobs:
       name: production
       url: https://ykamina.ru
     steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: production-release
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -46,7 +59,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
-      - name: Configure application database
+      - name: Deploy release
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -54,16 +67,13 @@ jobs:
           DATABASE_PUBLIC_HOST: ${{ secrets.DATABASE_PUBLIC_HOST }}
           DATABASE_SSL_REJECT_UNAUTHORIZED: ${{ secrets.DATABASE_SSL_REJECT_UNAUTHORIZED }}
         run: |
+          archive="/tmp/ykamina-${GITHUB_SHA}.tgz"
+          script="/tmp/ykamina-artifact-deploy"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes release.tgz "$DEPLOY_USER@$DEPLOY_HOST:$archive"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes deploy/server-artifact-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$script"
           {
             printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
             printf 'DATABASE_PUBLIC_HOST=%s\n' "$DATABASE_PUBLIC_HOST"
             printf 'DATABASE_SSL_REJECT_UNAUTHORIZED=%s\n' "$DATABASE_SSL_REJECT_UNAUTHORIZED"
           } | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'set -e; umask 077; env_file=/etc/ykamina/ykamina.env; temp_file=$(mktemp /tmp/ykamina-env.XXXXXX); if [ -r "$env_file" ]; then grep -vE "^(DATABASE_URL|DATABASE_PUBLIC_HOST|DATABASE_SSL_REJECT_UNAUTHORIZED)=" "$env_file" > "$temp_file" || true; fi; cat >> "$temp_file"; sudo /usr/bin/install -m 600 "$temp_file" "$env_file"; rm -f "$temp_file"; sudo /usr/bin/systemctl restart ykamina.service'
-      - name: Deploy release
-        env:
-          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
-          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
-        run: |
-          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "candidate='/srv/ykamina/releases/${GITHUB_SHA}'; current=\$(readlink -f /srv/ykamina/current 2>/dev/null || true); if [ \"\$candidate\" != \"\$current\" ]; then rm -rf -- \"\$candidate\"; fi; env NODE_OPTIONS='--max-old-space-size=512' NEXT_TELEMETRY_DISABLED=1 /usr/local/bin/deploy-ykamina '${GITHUB_SHA}'"
+            "chmod 700 '$script'; '$script' '${GITHUB_SHA}' '$archive'"
