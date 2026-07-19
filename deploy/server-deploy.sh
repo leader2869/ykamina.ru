@@ -18,6 +18,10 @@ previous_release="$(readlink -f "$current_link" 2>/dev/null || true)"
 
 install -d -m 755 "$app_root" "$releases_dir"
 
+if [[ -d "$release_dir" && ! -d "$release_dir/.git" && "$release_dir" != "$previous_release" ]]; then
+  rm -rf -- "$release_dir"
+fi
+
 if [[ ! -d "$release_dir/.git" ]]; then
   git clone --filter=blob:none --no-checkout "$repository" "$release_dir"
 fi
