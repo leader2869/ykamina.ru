@@ -59,7 +59,7 @@ jobs:
             printf 'DATABASE_PUBLIC_HOST=%s\n' "$DATABASE_PUBLIC_HOST"
             printf 'DATABASE_SSL_REJECT_UNAUTHORIZED=%s\n' "$DATABASE_SSL_REJECT_UNAUTHORIZED"
           } | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'set -e; umask 077; env_file=/etc/ykamina/ykamina.env; temp_file=$(mktemp /tmp/ykamina-env.XXXXXX); if [ -f "$env_file" ]; then grep -vE "^(DATABASE_URL|DATABASE_PUBLIC_HOST|DATABASE_SSL_REJECT_UNAUTHORIZED)=" "$env_file" > "$temp_file" || true; fi; cat >> "$temp_file"; install -m 600 "$temp_file" "$env_file"; rm -f "$temp_file"; sudo /usr/bin/systemctl restart ykamina.service'
+            'set -e; umask 077; env_file=/etc/ykamina/ykamina.env; temp_file=$(mktemp /tmp/ykamina-env.XXXXXX); if [ -r "$env_file" ]; then grep -vE "^(DATABASE_URL|DATABASE_PUBLIC_HOST|DATABASE_SSL_REJECT_UNAUTHORIZED)=" "$env_file" > "$temp_file" || true; fi; cat >> "$temp_file"; sudo /usr/bin/install -m 600 "$temp_file" "$env_file"; rm -f "$temp_file"; sudo /usr/bin/systemctl restart ykamina.service'
       - name: Deploy release
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
