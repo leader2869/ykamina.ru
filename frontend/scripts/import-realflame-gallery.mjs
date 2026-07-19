@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { refreshProductVisibility } from './lib/refresh-product-visibility.mjs';
 
 const baseUrl = 'https://realflame.ru';
 const databaseUrl = process.env.DATABASE_URL;
@@ -65,9 +66,13 @@ try {
   if (!supplier.rowCount) throw new Error('RealFlame supplier not found. Run npm run supplier:realflame first.');
   runId = (await client.query(`INSERT INTO import_runs (supplier_id, source_url, status) VALUES ($1, $2, 'running') RETURNING id`, [supplier.rows[0].id, 'https://realflame.ru/search/'])).rows[0].id;
   const products = (await client.query(
-    `SELECT id, supplier_sku, images FROM products
-     WHERE is_published = TRUE AND supplier_sku IS NOT NULL AND jsonb_array_length(images) <= 1
-     ORDER BY updated_at DESC ${limit ? 'LIMIT $1' : ''}`,
+    `SELECT p.id, p.supplier_sku, p.images FROM products p
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN categories parent ON parent.id = c.parent_id
+     WHERE p.supplier_sku IS NOT NULL AND p.price > 0
+       AND COALESCE(parent.slug, c.slug, '') <> 'другое'
+       AND jsonb_array_length(p.images) <= 1
+     ORDER BY p.updated_at DESC ${limit ? 'LIMIT $1' : ''}`,
     limit ? [limit] : [],
   )).rows;
   let updated = 0;
@@ -94,7 +99,9 @@ try {
       console.log(`Gallery progress: ${processed}/${products.length}; updated ${updated}; remaining ${products.length - processed}.`);
     }
   }
+  const visibilityUpdated = await refreshProductVisibility(client);
   await client.query(`UPDATE import_runs SET status = 'success', updated_count = $1, finished_at = NOW() WHERE id = $2`, [updated, runId]);
+  console.log(`Visibility refreshed for ${visibilityUpdated} products.`);
   console.log(`RealFlame gallery import complete: updated ${updated} of ${products.length} products.`);
 } catch (error) {
   if (runId) await client.query(`UPDATE import_runs SET status = 'failed', error_message = $1, finished_at = NOW() WHERE id = $2`, [String(error.message || error), runId]);

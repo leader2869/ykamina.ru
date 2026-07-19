@@ -1,6 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import pg from 'pg';
+import { refreshProductVisibility } from './lib/refresh-product-visibility.mjs';
 
 const publicKey = 'https://disk.yandex.ru/d/75LasP9HNbhxGQ';
 const rootPath = '/фотобанк RealFlame';
@@ -66,7 +67,13 @@ try {
   const supplier = await client.query(`SELECT id FROM suppliers WHERE url = 'https://realflame.ru' LIMIT 1`);
   runId = (await client.query(`INSERT INTO import_runs (supplier_id, source_url, status) VALUES ($1, $2, 'running') RETURNING id`, [supplier.rows[0]?.id || null, publicKey])).rows[0].id;
   await mkdir(outputDir, { recursive: true });
-  const [productsResult, files] = await Promise.all([client.query(`SELECT id, name, supplier_sku FROM products WHERE is_published = TRUE`), listFiles()]);
+  const [productsResult, files] = await Promise.all([client.query(`
+    SELECT p.id, p.name, p.supplier_sku FROM products p
+    LEFT JOIN categories c ON c.id = p.category_id
+    LEFT JOIN categories parent ON parent.id = c.parent_id
+    WHERE p.supplier_sku IS NOT NULL AND p.price > 0
+      AND COALESCE(parent.slug, c.slug, '') <> 'другое'
+  `), listFiles()]);
   const byFolder = new Map();
   for (const file of files) {
     const segments = file.path.split('/');
@@ -105,8 +112,9 @@ try {
     }
   });
   await Promise.all(workers);
+  const visibilityUpdated = await refreshProductVisibility(client);
   await client.query(`UPDATE import_runs SET status = 'success', updated_count = $1, finished_at = NOW() WHERE id = $2`, [updated, runId]);
-  console.log(`RealFlame photobank import complete: matched ${matches.length}, updated ${updated}, indexed ${files.length} images.`);
+  console.log(`RealFlame photobank import complete: matched ${matches.length}, updated ${updated}, indexed ${files.length} images; visibility refreshed for ${visibilityUpdated}.`);
 } catch (error) {
   if (runId) await client.query(`UPDATE import_runs SET status = 'failed', error_message = $1, finished_at = NOW() WHERE id = $2`, [String(error.message || error), runId]);
   throw error;

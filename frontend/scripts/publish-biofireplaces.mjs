@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { refreshProductVisibility } from './lib/refresh-product-visibility.mjs';
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL is required.');
 
@@ -27,8 +28,9 @@ try {
      WHERE name ILIKE '%биокамин%' OR description ILIKE '%биокамин%'`,
     [child.rows[0].id],
   );
+  const visibilityUpdated = await refreshProductVisibility(client);
   await client.query('COMMIT');
-  console.log(`Biofireplaces published: ${result.rowCount}.`);
+  console.log(`Biofireplaces published: ${result.rowCount}; visibility refreshed for ${visibilityUpdated}.`);
 } catch (error) {
   await client.query('ROLLBACK');
   throw error;

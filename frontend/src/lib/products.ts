@@ -14,8 +14,30 @@ export type Product = {
   article?: string;
   dimensionsData?: { width?: number; height?: number; depth?: number };
   availability?: { moscow?: string | null; saintPetersburg?: string | null };
+  isPublished?: boolean;
+  visibilityComment?: string | null;
   specifications?: Record<string, Record<string, string>>;
 };
+
+const normalizedAvailability = (product: Product) => [
+  product.availability?.moscow,
+  product.availability?.saintPetersburg,
+].filter((value): value is string => Boolean(value)).map((value) => value.trim().toLocaleLowerCase('ru-RU'));
+
+export function catalogProductRank(product: Product) {
+  const availability = normalizedAvailability(product);
+  if (availability.includes('много')) return 0;
+  if (availability.includes('мало')) return 1;
+  const hasDescription = Boolean(product.description?.trim());
+  const hasSpecifications = Boolean(product.specifications && Object.keys(product.specifications).length);
+  const hasDimensions = Boolean(product.dimensionsData && Object.values(product.dimensionsData).some(Boolean));
+  return hasDescription && (hasSpecifications || hasDimensions) ? 2 : 3;
+}
+
+export function compareCatalogProducts(left: Product, right: Product) {
+  return catalogProductRank(left) - catalogProductRank(right)
+    || left.name.localeCompare(right.name, 'ru');
+}
 
 export const products: Product[] = [
   ...[

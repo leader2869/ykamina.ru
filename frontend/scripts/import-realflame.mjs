@@ -1,5 +1,6 @@
 import { parse } from 'csv-parse/sync';
 import pg from 'pg';
+import { refreshProductVisibility } from './lib/refresh-product-visibility.mjs';
 
 const sourceUrl = process.env.REALFLAME_CSV_URL || 'https://realflame.ru/upload/partners.csv';
 const databaseUrl = process.env.DATABASE_URL;
@@ -64,8 +65,9 @@ try {
   for (const row of rows) {
     const name = normalize(row['Наименование элемента']);
     const article = normalize(row['Артикул [ARTICLE]']);
-    const price = Number.parseFloat(normalize(row['Цена "Розничная цена"']).replace(',', '.'));
-    if (!name || !article || !Number.isFinite(price) || price <= 0) continue;
+    const parsedPrice = Number.parseFloat(normalize(row['Цена "Розничная цена"']).replace(',', '.'));
+    const price = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : 0;
+    if (!name || !article) continue;
 
     const description = normalize(row['Детальное описание']) || `${name}.`;
     const [parentName, categoryName] = categoryFor(name, description);
@@ -90,14 +92,17 @@ try {
     const dimensions = { height: Number(normalize(row['Высота, мм [HEIGHT]'])) || null, width: Number(normalize(row['Ширина, мм [WIDTH]'])) || null, depth: Number(normalize(row['Глубина, мм [DEPTH]'])) || null };
     const existing = await client.query('SELECT id FROM products WHERE supplier_sku = $1', [article]);
     const result = await client.query(
-      `INSERT INTO products (name, slug, description, price, category_id, images, stock, dimensions, supplier_sku, supplier_updated_at, is_published)
-       VALUES ($1, $2, $3, $4, $5, $6::jsonb, 0, $7::jsonb, $8, NOW(), $9)
+      `INSERT INTO products (name, slug, description, price, category_id, images, stock, dimensions, supplier_sku, supplier_updated_at, is_published, visibility_comment)
+       VALUES ($1, $2, $3, $4, $5, $6::jsonb, 0, $7::jsonb, $8, NOW(), $9, $10)
        ON CONFLICT (supplier_sku) DO UPDATE SET
          name = EXCLUDED.name, description = EXCLUDED.description, price = EXCLUDED.price,
          category_id = EXCLUDED.category_id, images = EXCLUDED.images, dimensions = EXCLUDED.dimensions,
-         is_published = EXCLUDED.is_published, supplier_updated_at = NOW(), updated_at = NOW()
+         is_published = EXCLUDED.is_published, visibility_comment = EXCLUDED.visibility_comment,
+         supplier_updated_at = NOW(), updated_at = NOW()
        RETURNING id`,
-      [name, makeSlug(article), description, price, categories.get(categoryKey), JSON.stringify(image ? [image] : []), JSON.stringify(dimensions), article, Boolean(image) && parentName !== 'Другое' && !isAccessory(name)],
+      [name, makeSlug(article), description, price, categories.get(categoryKey), JSON.stringify(image ? [image] : []), JSON.stringify(dimensions), article,
+        price > 0 && Boolean(image) && parentName !== 'Другое' && !isAccessory(name),
+        price <= 0 ? 'Нет цены' : !image ? 'Нет фото' : parentName === 'Другое' || isAccessory(name) ? 'Служебная категория' : null],
     );
     await client.query(
       `INSERT INTO prices (product_id, supplier_id, price) VALUES ($1, $2, $3)
@@ -107,8 +112,9 @@ try {
     if (existing.rowCount) updated += 1; else created += 1;
   }
 
+  const visibilityUpdated = await refreshProductVisibility(client);
   await client.query(`UPDATE import_runs SET status = 'success', created_count = $1, updated_count = $2, finished_at = NOW() WHERE id = $3`, [created, updated, runId]);
-  console.log(`RealFlame import complete: created ${created}, updated ${updated}.`);
+  console.log(`RealFlame import complete: created ${created}, updated ${updated}; visibility refreshed for ${visibilityUpdated}.`);
 } catch (error) {
   if (runId) await client.query(`UPDATE import_runs SET status = 'failed', error_message = $1, finished_at = NOW() WHERE id = $2`, [String(error.message || error), runId]);
   throw error;

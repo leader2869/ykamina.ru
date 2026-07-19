@@ -16,6 +16,8 @@ type DatabaseRow = {
   category_name: string | null;
   parent_category_name: string | null;
   availability: Product['availability'] | null;
+  is_published?: boolean;
+  visibility_comment?: string | null;
   specifications: Product['specifications'] | null;
 };
 
@@ -38,6 +40,7 @@ function mapRow(row: DatabaseRow): Product {
     type: row.category_name || 'Камин', parentType: row.parent_category_name || undefined, dimensions: dimensionValues.length ? `${dimensionValues.join(' × ')} мм` : 'Уточняйте у менеджера',
     stock: row.stock, article: row.supplier_sku || undefined, dimensionsData: dimensions,
     availability: row.availability || undefined, specifications: row.specifications || undefined,
+    isPublished: row.is_published, visibilityComment: row.visibility_comment,
   };
 }
 
@@ -51,7 +54,18 @@ async function queryProducts(categorySlug?: string): Promise<Product[] | null> {
        LEFT JOIN categories parent ON parent.id = c.parent_id
        WHERE p.is_published = TRUE
        ${categorySlug ? 'AND (c.slug = $1 OR parent.slug = $1)' : ''}
-       ORDER BY p.updated_at DESC`,
+       ORDER BY
+         CASE
+           WHEN LOWER(COALESCE(p.availability->>'moscow', '')) = 'много'
+             OR LOWER(COALESCE(p.availability->>'saintPetersburg', '')) = 'много' THEN 0
+           WHEN LOWER(COALESCE(p.availability->>'moscow', '')) = 'мало'
+             OR LOWER(COALESCE(p.availability->>'saintPetersburg', '')) = 'мало' THEN 1
+           WHEN BTRIM(COALESCE(p.description, '')) <> ''
+             AND (COALESCE(p.dimensions, '{}'::jsonb) <> '{}'::jsonb
+               OR COALESCE(p.specifications, '{}'::jsonb) NOT IN ('{}'::jsonb, '[]'::jsonb, 'null'::jsonb)) THEN 2
+           ELSE 3
+         END,
+         p.name ASC`,
       categorySlug ? [categorySlug] : [],
     );
     return result.rows.map(mapRow);
@@ -71,7 +85,8 @@ export async function getSaleProducts() {
   try {
     const result = await pool.query<DatabaseRow>(
       `SELECT p.id, p.name, p.slug, p.description, p.price, p.old_price, p.images, p.stock, p.supplier_sku,
-              p.dimensions, p.availability, p.specifications, c.name AS category_name
+              p.dimensions, p.availability, p.specifications, p.is_published, p.visibility_comment,
+              c.name AS category_name
        FROM products p
        LEFT JOIN categories c ON c.id = p.category_id
        WHERE p.is_published = TRUE AND p.old_price > p.price
@@ -114,14 +129,16 @@ export async function getHeaderCategoryPreviews(): Promise<Record<string, Header
   }
 }
 
-export async function getProduct(idOrSlug: string) {
+export async function getProduct(idOrSlug: string, includeUnpublished = false) {
   if (!pool) return demoProducts.find((product) => product.id === idOrSlug || product.slug === idOrSlug);
   try {
     const result = await pool.query<DatabaseRow>(
       `SELECT p.id, p.name, p.slug, p.description, p.price, p.old_price, p.images, p.stock, p.supplier_sku,
-              p.dimensions, p.availability, p.specifications, c.name AS category_name
+              p.dimensions, p.availability, p.specifications, p.is_published, p.visibility_comment,
+              c.name AS category_name
        FROM products p LEFT JOIN categories c ON c.id = p.category_id
-       WHERE p.is_published = TRUE AND (p.id::text = $1 OR p.slug = $1) LIMIT 1`, [idOrSlug],
+       WHERE ($2::boolean = TRUE OR p.is_published = TRUE)
+         AND (p.id::text = $1 OR p.slug = $1) LIMIT 1`, [idOrSlug, includeUnpublished],
     );
     return result.rows[0] ? mapRow(result.rows[0]) : undefined;
   } catch (error) {
