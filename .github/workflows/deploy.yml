@@ -52,4 +52,4 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "env NODE_OPTIONS='--max-old-space-size=512' NEXT_TELEMETRY_DISABLED=1 /usr/local/bin/deploy-ykamina '${GITHUB_SHA}'"
+            "candidate='/srv/ykamina/releases/${GITHUB_SHA}'; current=\$(readlink -f /srv/ykamina/current 2>/dev/null || true); if [ \"\$candidate\" != \"\$current\" ]; then rm -rf -- \"\$candidate\"; fi; env NODE_OPTIONS='--max-old-space-size=512' NEXT_TELEMETRY_DISABLED=1 /usr/local/bin/deploy-ykamina '${GITHUB_SHA}'"
