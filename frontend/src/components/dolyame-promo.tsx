@@ -37,11 +37,15 @@ export function DolyamePromo() {
           <Link href="/delivery" className="rounded-full border border-ink/15 bg-white/60 px-6 py-3 text-sm font-medium text-ink transition hover:border-ink/30">Как оплатить</Link>
         </div>
       </div>
-      <div aria-hidden="true" className="flex aspect-square w-full max-w-md items-end gap-2 justify-self-center rounded-3xl bg-white p-8 lg:justify-self-end">
-        <span className="h-[70%] flex-1 bg-[#b3eaff]" />
-        <span className="h-[80%] flex-1 bg-[#b3eaff]" />
-        <span className="h-[90%] flex-1 bg-[#b3eaff]" />
-        <span className="h-full flex-1 bg-[#b3eaff]" />
+      <div className="aspect-square w-full max-w-md justify-self-center overflow-hidden rounded-3xl shadow-[0_24px_60px_-36px_rgba(29,29,27,.45)] lg:justify-self-end">
+        <Image
+          src="/images/dolyame-fireplace-four-parts-v1.png"
+          alt="Камин, разделённый на четыре равные части"
+          width={1254}
+          height={1254}
+          sizes="(min-width: 1024px) 448px, (min-width: 640px) 448px, calc(100vw - 40px)"
+          className="h-full w-full object-cover"
+        />
       </div>
     </div>
     <div className="container-page pb-6 text-[9px] leading-4 text-ink/45">
