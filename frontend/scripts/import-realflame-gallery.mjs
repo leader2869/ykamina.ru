@@ -9,9 +9,46 @@ const requestRetries = Number(process.env.REALFLAME_GALLERY_RETRIES || 3);
 if (!databaseUrl) throw new Error('DATABASE_URL is required.');
 
 const { Client } = pg;
-const client = new Client({ connectionString: databaseUrl });
 const unique = (items) => [...new Set(items)];
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+let client;
+
+async function closeDatabase() {
+  if (!client) return;
+  try {
+    await client.end();
+  } catch {
+    // The connection may already be closed after a provider-side timeout.
+  }
+  client = undefined;
+}
+
+async function connectDatabase() {
+  const nextClient = new Client({ connectionString: databaseUrl });
+  // Prevent a provider-side idle timeout from turning into an unhandled event.
+  nextClient.on('error', (error) => console.warn(`Gallery database connection interrupted: ${error.message}`));
+  await nextClient.connect();
+  client = nextClient;
+  return client;
+}
+
+async function withDatabase(operation) {
+  let lastError;
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      if (!client) await connectDatabase();
+      return await operation(client);
+    } catch (error) {
+      lastError = error;
+      const reconnectable = ['57P05', '57P01', '08003', '08006', 'ECONNRESET'].includes(error.code) || /connection|timeout/i.test(error.message || '');
+      if (!reconnectable || attempt === 2) throw error;
+      console.warn(`Gallery database reconnect ${attempt}/1: ${error.message}`);
+      await closeDatabase();
+      await sleep(500);
+    }
+  }
+  throw lastError;
+}
 
 function productLinks(html) {
   return unique([...html.matchAll(/href="(\/catalog\/[^"?#]+)(?:\?[^"#]*)?"/g)].map((match) => match[1]));
@@ -59,13 +96,12 @@ async function findGallery(article) {
   return null;
 }
 
-await client.connect();
 let runId;
 try {
-  const supplier = await client.query(`SELECT id FROM suppliers WHERE url = 'https://realflame.ru' LIMIT 1`);
+  const supplier = await withDatabase((db) => db.query(`SELECT id FROM suppliers WHERE url = 'https://realflame.ru' LIMIT 1`));
   if (!supplier.rowCount) throw new Error('RealFlame supplier not found. Run npm run supplier:realflame first.');
-  runId = (await client.query(`INSERT INTO import_runs (supplier_id, source_url, status) VALUES ($1, $2, 'running') RETURNING id`, [supplier.rows[0].id, 'https://realflame.ru/search/'])).rows[0].id;
-  const products = (await client.query(
+  runId = (await withDatabase((db) => db.query(`INSERT INTO import_runs (supplier_id, source_url, status) VALUES ($1, $2, 'running') RETURNING id`, [supplier.rows[0].id, 'https://realflame.ru/search/']))).rows[0].id;
+  const products = (await withDatabase((db) => db.query(
     `SELECT p.id, p.supplier_sku, p.images FROM products p
      LEFT JOIN categories c ON c.id = p.category_id
      LEFT JOIN categories parent ON parent.id = c.parent_id
@@ -74,7 +110,7 @@ try {
        AND jsonb_array_length(p.images) <= 1
      ORDER BY p.updated_at DESC ${limit ? 'LIMIT $1' : ''}`,
     limit ? [limit] : [],
-  )).rows;
+  ))).rows;
   let updated = 0;
   let processed = 0;
   for (const product of products) {
@@ -85,10 +121,10 @@ try {
         // Never replace the main image: append only new gallery URLs.
         const images = unique([...(Array.isArray(product.images) ? product.images : []), ...gallery.images]);
         if (images.length > (Array.isArray(product.images) ? product.images.length : 0)) {
-          await client.query(
+          await withDatabase((db) => db.query(
             `UPDATE products SET images = $1::jsonb, supplier_product_url = $2, supplier_updated_at = NOW(), updated_at = NOW() WHERE id = $3`,
             [JSON.stringify(images), gallery.pageUrl, product.id],
-          );
+          ));
           updated += 1;
         }
       }
@@ -99,13 +135,13 @@ try {
       console.log(`Gallery progress: ${processed}/${products.length}; updated ${updated}; remaining ${products.length - processed}.`);
     }
   }
-  const visibilityUpdated = await refreshProductVisibility(client);
-  await client.query(`UPDATE import_runs SET status = 'success', updated_count = $1, finished_at = NOW() WHERE id = $2`, [updated, runId]);
+  const visibilityUpdated = await withDatabase((db) => refreshProductVisibility(db));
+  await withDatabase((db) => db.query(`UPDATE import_runs SET status = 'success', updated_count = $1, finished_at = NOW() WHERE id = $2`, [updated, runId]));
   console.log(`Visibility refreshed for ${visibilityUpdated} products.`);
   console.log(`RealFlame gallery import complete: updated ${updated} of ${products.length} products.`);
 } catch (error) {
-  if (runId) await client.query(`UPDATE import_runs SET status = 'failed', error_message = $1, finished_at = NOW() WHERE id = $2`, [String(error.message || error), runId]);
+  if (runId) await withDatabase((db) => db.query(`UPDATE import_runs SET status = 'failed', error_message = $1, finished_at = NOW() WHERE id = $2`, [String(error.message || error), runId]));
   throw error;
 } finally {
-  await client.end();
+  await closeDatabase();
 }
