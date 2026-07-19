@@ -1,5 +1,6 @@
 import { unstable_noStore as noStore } from 'next/cache';
 import { Pool } from 'pg';
+import { getDatabaseConnectionString } from '@/lib/database';
 import { products as demoProducts } from '@/lib/products';
 
 export type AdminProduct = {
@@ -91,8 +92,9 @@ export type AdminDashboard = {
 };
 
 const globalForAdmin = global as typeof globalThis & { adminPool?: Pool };
-const pool = process.env.DATABASE_URL
-  ? (globalForAdmin.adminPool ??= new Pool({ connectionString: process.env.DATABASE_URL }))
+const databaseConnectionString = getDatabaseConnectionString();
+const pool = databaseConnectionString
+  ? (globalForAdmin.adminPool ??= new Pool({ connectionString: databaseConnectionString }))
   : null;
 
 export function getAdminPool() {

@@ -4,6 +4,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { getCurrentUser, hashPassword, UserRole } from '@/lib/auth';
 import { getAdminPool } from '@/lib/admin';
+import { cancelTBankPayment, CancelResponse } from '@/lib/tbank';
 
 const adminCatalogUrl = (params: Record<string, string>) => {
   const search = new URLSearchParams({ section: 'catalog', ...params });
@@ -12,6 +13,11 @@ const adminCatalogUrl = (params: Record<string, string>) => {
 
 const adminTeamUrl = (params: Record<string, string>) => {
   const search = new URLSearchParams({ section: 'team', ...params });
+  return `/admin?${search.toString()}`;
+};
+
+const adminOrdersUrl = (params: Record<string, string>) => {
+  const search = new URLSearchParams({ section: 'orders', ...params });
   return `/admin?${search.toString()}`;
 };
 
@@ -73,6 +79,74 @@ export async function toggleProductPublication(formData: FormData) {
   }
   revalidatePath('/admin');
   revalidatePath('/catalog');
+}
+
+export async function cancelOrder(formData: FormData) {
+  const actor = await requireSuperAdmin();
+  const orderId = String(formData.get('orderId') || '');
+  const reason = String(formData.get('reason') || '').trim().slice(0, 1000) || 'Отменено администратором';
+  if (!/^[0-9a-f-]{32,36}$/i.test(orderId)) redirect(adminOrdersUrl({ orderError: 'Заказ не найден.' }));
+
+  const pool = getAdminPool();
+  const orderResult = await pool.query<{ status: string; tbank_payment_id: string | null; customer_name: string; order_number: string | null; payment_provider: string }>(
+    'SELECT status, tbank_payment_id, customer_name, order_number, payment_provider FROM payment_orders WHERE id = $1::uuid LIMIT 1', [orderId],
+  );
+  const order = orderResult.rows[0];
+  if (!order) redirect(adminOrdersUrl({ orderError: 'Заказ не найден.' }));
+  const terminalStatuses = new Set(['cancelled', 'canceled', 'refunded', 'reversed']);
+  if (terminalStatuses.has(order.status) || order.status === 'cancellation_pending') {
+    redirect(adminOrdersUrl({ orderError: 'Этот заказ уже отменён или возврат выполняется.' }));
+  }
+
+  if (order.payment_provider === 'yandex_split' && ['confirmed', 'authorized'].includes(order.status)) {
+    redirect(adminOrdersUrl({ orderError: 'Возврат оплаты через Сплит нужно выполнить в кабинете Яндекс Pay.' }));
+  }
+
+  if (!order.tbank_payment_id) {
+    await pool.query(
+      `UPDATE payment_orders SET status = 'cancelled', cancellation_reason = $2,
+        cancellation_requested_at = NOW(), cancelled_at = NOW(), updated_at = NOW()
+       WHERE id = $1::uuid`, [orderId, reason],
+    );
+    await writeAudit(actor.id, 'order.cancelled', 'payment_order', orderId, order.order_number ? `Заказ ${order.order_number}` : 'Заказ без оплаты', { reason, refund: false });
+    revalidatePath('/admin');
+    redirect(adminOrdersUrl({ orderCancelled: '1' }));
+  }
+
+  const previousStatus = order.status;
+  const pending = await pool.query(
+    `UPDATE payment_orders SET status = 'cancellation_pending', cancellation_reason = $2,
+       cancellation_requested_at = NOW(), updated_at = NOW()
+     WHERE id = $1::uuid AND status = $3`, [orderId, reason, previousStatus],
+  );
+  if (!pending.rowCount) redirect(adminOrdersUrl({ orderError: 'Статус заказа уже изменился. Обновите страницу.' }));
+
+  let result: CancelResponse;
+  try {
+    result = await cancelTBankPayment(order.tbank_payment_id);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Т‑Банк не выполнил отмену';
+    await pool.query(
+      `UPDATE payment_orders SET status = $2, cancellation_response = $3::jsonb, updated_at = NOW()
+       WHERE id = $1::uuid AND status = 'cancellation_pending'`,
+      [orderId, previousStatus, JSON.stringify({ Success: false, Message: message })],
+    );
+    redirect(adminOrdersUrl({ orderError: message }));
+  }
+
+  // После успешного ответа банка не возвращаем прежний статус даже при сбое
+  // последующей записи: cancellation_pending блокирует повторный возврат.
+  const nextStatus = (result.Status || 'cancelled').toLowerCase();
+  await pool.query(
+    `UPDATE payment_orders SET status = $2, cancelled_at = NOW(), cancellation_response = $3::jsonb, updated_at = NOW()
+     WHERE id = $1::uuid`, [orderId, nextStatus, JSON.stringify(result)],
+  );
+  await writeAudit(actor.id, 'payment.cancelled', 'payment_order', orderId, order.order_number ? `Заказ ${order.order_number}` : 'Заказ без номера', {
+    reason, refund: true, paymentId: order.tbank_payment_id, bankStatus: result.Status,
+  });
+
+  revalidatePath('/admin');
+  redirect(adminOrdersUrl({ paymentCancelled: '1' }));
 }
 
 export async function createManualProduct(formData: FormData) {

@@ -1,6 +1,7 @@
 import { Pool } from 'pg';
 import { unstable_noStore as noStore } from 'next/cache';
 import { Product, products as demoProducts } from '@/lib/products';
+import { getDatabaseConnectionString } from '@/lib/database';
 
 type DatabaseRow = {
   id: string | number;
@@ -25,8 +26,9 @@ export type CatalogCategory = { name: string; slug: string; children: { name: st
 export type HeaderCategoryPreview = { images: string[] };
 
 const globalForDatabase = global as typeof globalThis & { catalogPool?: Pool };
-const pool = process.env.DATABASE_URL
-  ? (globalForDatabase.catalogPool ??= new Pool({ connectionString: process.env.DATABASE_URL }))
+const databaseConnectionString = getDatabaseConnectionString();
+const pool = databaseConnectionString
+  ? (globalForDatabase.catalogPool ??= new Pool({ connectionString: databaseConnectionString }))
   : null;
 
 function mapRow(row: DatabaseRow): Product {

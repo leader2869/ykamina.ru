@@ -1,12 +1,14 @@
 import { randomBytes, scryptSync, timingSafeEqual, createHash } from 'crypto';
 import { cookies } from 'next/headers';
 import { Pool } from 'pg';
+import { getDatabaseConnectionString } from '@/lib/database';
 
 export type UserRole = 'customer' | 'sales_manager' | 'super_admin';
 export type CurrentUser = { id: string; role: UserRole; fullName: string; phone: string; email: string; birthDate: string; deliveryAddress: string };
 
 const globalForAuth = global as typeof globalThis & { authPool?: Pool };
-const pool = process.env.DATABASE_URL ? (globalForAuth.authPool ??= new Pool({ connectionString: process.env.DATABASE_URL })) : null;
+const databaseConnectionString = getDatabaseConnectionString();
+const pool = databaseConnectionString ? (globalForAuth.authPool ??= new Pool({ connectionString: databaseConnectionString })) : null;
 export const sessionCookieName = 'ykamina_session';
 
 const normalizeEmail = (value: string) => value.trim().toLowerCase();

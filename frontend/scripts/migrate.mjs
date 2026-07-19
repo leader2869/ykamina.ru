@@ -5,9 +5,17 @@ import pg from 'pg';
 
 if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL не задан');
 
+const databaseUrl = new URL(process.env.DATABASE_URL);
+if (process.env.DATABASE_PUBLIC_HOST) {
+  databaseUrl.hostname = process.env.DATABASE_PUBLIC_HOST;
+}
+if (process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false') {
+  databaseUrl.searchParams.set('sslmode', 'no-verify');
+}
+
 const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), '../../database/migrations');
 const files = (await readdir(migrationsDirectory)).filter((file) => file.endsWith('.sql')).sort();
-const client = new pg.Client({ connectionString: process.env.DATABASE_URL });
+const client = new pg.Client({ connectionString: databaseUrl.toString() });
 await client.connect();
 
 try {
