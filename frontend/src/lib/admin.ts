@@ -91,10 +91,26 @@ export type AdminDashboard = {
   audit: AuditEvent[];
 };
 
+export async function getProductCompatibilities(): Promise<Record<string, string[]>> {
+  if (!pool) return {};
+  try {
+    const result = await pool.query<{ hearth_product_id: string; portal_product_id: string }>(
+      'SELECT hearth_product_id, portal_product_id FROM product_compatibilities',
+    );
+    return result.rows.reduce<Record<string, string[]>>((items, row) => {
+      const hearthId = String(row.hearth_product_id);
+      items[hearthId] = [...(items[hearthId] || []), String(row.portal_product_id)];
+      return items;
+    }, {});
+  } catch {
+    return {};
+  }
+}
+
 const globalForAdmin = global as typeof globalThis & { adminPool?: Pool };
 const databaseConnectionString = getDatabaseConnectionString();
 const pool = databaseConnectionString
-  ? (globalForAdmin.adminPool ??= new Pool({ connectionString: databaseConnectionString }))
+  ? (globalForAdmin.adminPool ??= new Pool({ connectionString: databaseConnectionString, max: 2, idleTimeoutMillis: 10_000 }))
   : null;
 
 export function getAdminPool() {
@@ -211,8 +227,7 @@ export async function getAdminDashboard(filters: { category?: string; query?: st
             ELSE 3
           END,
           CASE WHEN p.is_published THEN 0 ELSE 1 END,
-          p.name ASC
-        LIMIT 250`, [category, query]),
+          p.name ASC`, [category, query]),
       pool.query<{
         id: string; name: string; slug: string; parent_id: string | null;
         parent_name: string | null; parent_slug: string | null;

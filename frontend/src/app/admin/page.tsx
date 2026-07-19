@@ -10,14 +10,17 @@ import { logout } from '@/app/auth-actions';
 import { createManualProduct, createUser, deleteUser, toggleProductPublication, updateProduct, updateUser, cancelOrder } from './actions';
 import { getPaymentOrders, getSalesAnalytics, PaymentOrder } from '@/lib/payment-orders';
 import { SalesAnalyticsPanel } from '@/components/sales-analytics-panel';
+import { CompanyFinancePanel } from '@/components/company-finance-panel';
+import { getCompanyFinance } from '@/lib/company-finance';
 
-type Section = 'overview' | 'catalog' | 'orders' | 'analytics' | 'team' | 'integrations' | 'security';
+type Section = 'overview' | 'catalog' | 'orders' | 'analytics' | 'finance' | 'team' | 'integrations' | 'security';
 
 const navigation: { id: Section; label: string }[] = [
   { id: 'overview', label: 'Обзор' },
   { id: 'catalog', label: 'Каталог' },
   { id: 'orders', label: 'Заказы и оплаты' },
   { id: 'analytics', label: 'Аналитика продаж' },
+  { id: 'finance', label: 'Финансы компании' },
   { id: 'team', label: 'Команда и доступы' },
   { id: 'integrations', label: 'Интеграции' },
   { id: 'security', label: 'Безопасность' },
@@ -62,6 +65,13 @@ function AdminNavIcon({ section }: { section: Section }) {
     return (
       <svg {...common}>
         <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" />
+      </svg>
+    );
+  if (section === 'finance')
+    return (
+      <svg {...common}>
+        <circle cx="12" cy="12" r="9" />
+        <path d="M15.5 8.5c-.8-.8-2-1.2-3.5-1.2-1.9 0-3.2.9-3.2 2.3 0 3.6 6.4 1.4 6.4 4.8 0 1.4-1.3 2.3-3.3 2.3-1.5 0-2.8-.5-3.7-1.4M12 5.5v13" />
       </svg>
     );
   if (section === 'team')
@@ -523,7 +533,7 @@ function Catalog({ data, query, selectedCategory, mode, error, created, updated,
                   ))}
                 </tbody>
               </table>
-              {data.products.length === 0 && <p className="py-12 text-center text-sm text-ink/45">В этой категории ничего не найдено</p>} {data.products.length === 250 && <p className="pt-4 text-center text-[11px] text-ink/40">Показаны первые 250 товаров в заданном порядке. Используйте категории или поиск.</p>}
+              {data.products.length === 0 && <p className="py-12 text-center text-sm text-ink/45">В этой категории ничего не найдено</p>}
             </div>
           </div>
         </div>
@@ -876,6 +886,7 @@ export default async function AdminPage({
     orderError?: string;
     orderCancelled?: string;
     paymentCancelled?: string;
+    financeMonth?: string;
   };
 }) {
   const user = await getCurrentUser();
@@ -888,6 +899,7 @@ export default async function AdminPage({
   const editProduct = searchParams.mode === 'edit' && searchParams.product ? await getAdminProduct(searchParams.product) : null;
   const orders = section === 'orders' ? await getPaymentOrders() : [];
   const salesAnalytics = section === 'analytics' ? await getSalesAnalytics() : null;
+  const finance = section === 'finance' ? await getCompanyFinance(searchParams.financeMonth) : null;
   const sectionTitle = navigation.find((item) => item.id === section)?.label || 'Обзор';
   const activeCategoryData = activeCategory ? data.categories.find((category) => category.slug === activeCategory) : null;
 
@@ -899,7 +911,7 @@ export default async function AdminPage({
             <div className="grid place-items-center border-b border-white/10 pb-4 pt-1" title="Панель управления Ykamina.ru">
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-white/10 font-serif text-xl text-gold-light">Y</span>
             </div>
-            <nav className="mt-3 grid grid-cols-7 gap-1 lg:grid-cols-1">
+            <nav className="mt-3 grid grid-cols-8 gap-1 lg:grid-cols-1">
               {navigation.map((item) => (
                 <Link key={item.id} href={`/admin?section=${item.id}`} aria-label={item.label} className={`group relative flex h-11 items-center justify-center rounded-xl transition ${section === item.id ? 'bg-white text-ink' : 'text-white/65 hover:bg-white/10 hover:text-white'}`}>
                   <AdminNavIcon section={item.id} />
@@ -959,6 +971,7 @@ export default async function AdminPage({
             {section === 'catalog' && <Catalog data={data} query={searchParams.q || ''} selectedCategory={activeCategory || ''} mode={searchParams.mode} error={searchParams.error} created={searchParams.created === '1'} updated={searchParams.updated === '1'} editProduct={editProduct} />}
             {section === 'orders' && <Orders orders={orders} error={searchParams.orderError} orderCancelled={searchParams.orderCancelled === '1'} paymentCancelled={searchParams.paymentCancelled === '1'} />}
             {section === 'analytics' && salesAnalytics && <SalesAnalyticsPanel data={salesAnalytics} showManagers />}
+            {section === 'finance' && finance && <CompanyFinancePanel data={finance} />}
             {section === 'team' && <Team data={data} currentUserId={user.id} userError={searchParams.userError} userCreated={searchParams.userCreated === '1'} userUpdated={searchParams.userUpdated === '1'} userDeleted={searchParams.userDeleted === '1'} logUserId={searchParams.logUser} />}
             {section === 'integrations' && <Integrations data={data} />}
             {section === 'security' && <Security data={data} />}

@@ -24,40 +24,59 @@ const statusNames: Record<string, string> = {
 
 const websiteProcessingStatuses = new Set(['authorized', 'confirmed']);
 
+type SaleItem = {
+  productId: string;
+  quantity: number;
+  salePriceRubles: number;
+  purchaseCostRubles: number | null;
+  purchaseCostFromCatalog: boolean;
+};
+
 function requiresWebsiteProcessing(order: PaymentOrder) {
-  return order.source === 'website' && websiteProcessingStatuses.has(order.status);
+  return order.source === 'website' && !order.managerUserId && websiteProcessingStatuses.has(order.status);
 }
 
 export function ManagerSales({
   products,
   orders,
+  managerUserId,
   query = '',
+  onQueryChange,
 }: {
   products: AdminProduct[];
   orders: PaymentOrder[];
+  managerUserId: string;
   query?: string;
+  onQueryChange?: (query: string) => void;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [productQuery, setProductQuery] = useState('');
-  const [items, setItems] = useState<{ productId: string; quantity: number }[]>([]);
+  const [items, setItems] = useState<SaleItem[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [claimingOrderId, setClaimingOrderId] = useState('');
+  const [cancellingOrderId, setCancellingOrderId] = useState('');
+  const [syncingOrderId, setSyncingOrderId] = useState('');
   const [result, setResult] = useState<{
     orderId: string;
     paymentUrl: string;
     amountKopecks: number;
   } | null>(null);
-  const processingCount = orders.filter(requiresWebsiteProcessing).length;
+  const managerOrders = useMemo(
+    () => orders.filter((order) => order.managerUserId === managerUserId || requiresWebsiteProcessing(order)),
+    [managerUserId, orders],
+  );
+  const processingCount = managerOrders.filter(requiresWebsiteProcessing).length;
   const orderedOrders = useMemo(
     () =>
-      [...orders].sort(
+      [...managerOrders].sort(
         (left, right) =>
           Number(requiresWebsiteProcessing(right)) - Number(requiresWebsiteProcessing(left)),
       ),
-    [orders],
+    [managerOrders],
   );
   const visibleOrders = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -73,16 +92,12 @@ export function ManagerSales({
     });
   }, [orderedOrders, query, sourceFilter, statusFilter]);
   const total = useMemo(
-    () =>
-      items.reduce(
-        (sum, item) =>
-          sum +
-          (products.find((product) => product.id === item.productId)?.price || 0) *
-            item.quantity *
-            100,
-        0,
-      ),
-    [items, products],
+    () => items.reduce((sum, item) => sum + item.salePriceRubles * item.quantity * 100, 0),
+    [items],
+  );
+  const totalCost = useMemo(
+    () => items.reduce((sum, item) => sum + (item.purchaseCostRubles || 0) * item.quantity * 100, 0),
+    [items],
   );
   const foundProducts = useMemo(() => {
     const query = productQuery.trim().toLowerCase();
@@ -98,6 +113,9 @@ export function ManagerSales({
 
   const addProduct = (productId: string) => {
     if (!productId) return;
+    const product = products.find((entry) => entry.id === productId);
+    if (!product) return;
+    const catalogCost = Number(product.availability?.wholesalePrice || 0);
     setItems((current) =>
       current.some((item) => item.productId === productId)
         ? current.map((item) =>
@@ -105,7 +123,13 @@ export function ManagerSales({
               ? { ...item, quantity: Math.min(10, item.quantity + 1) }
               : item,
           )
-        : [...current, { productId, quantity: 1 }],
+        : [...current, {
+            productId,
+            quantity: 1,
+            salePriceRubles: product.price,
+            purchaseCostRubles: catalogCost > 0 ? catalogCost : null,
+            purchaseCostFromCatalog: catalogCost > 0,
+          }],
     );
     setProductQuery('');
   };
@@ -116,6 +140,16 @@ export function ManagerSales({
       setError('Добавьте хотя бы один товар');
       return;
     }
+    const invalidCost = items.find((item) => !item.purchaseCostRubles || item.purchaseCostRubles <= 0);
+    if (invalidCost) {
+      setError('Укажите закупочную стоимость для каждого товара');
+      return;
+    }
+    const invalidPrice = items.find((item) => item.salePriceRubles < (item.purchaseCostRubles || 0));
+    if (invalidPrice) {
+      setError('Цена продажи не может быть ниже закупочной стоимости');
+      return;
+    }
     setSubmitting(true);
     setError('');
     const form = new FormData(event.currentTarget);
@@ -124,7 +158,12 @@ export function ManagerSales({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          items,
+          items: items.map((item) => ({
+            productId: item.productId,
+            quantity: item.quantity,
+            salePriceKopecks: Math.round(item.salePriceRubles * 100),
+            purchaseCostKopecks: Math.round((item.purchaseCostRubles || 0) * 100),
+          })),
           name: form.get('name'),
           phone: form.get('phone'),
           email: form.get('email'),
@@ -151,18 +190,52 @@ export function ManagerSales({
     setProductQuery('');
     setError('');
   };
+  const claimWebsiteOrder = async (orderId: string) => {
+    setClaimingOrderId(orderId);
+    setError('');
+    try {
+      const response = await fetch('/api/manager/sales', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Не удалось закрепить заказ');
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Не удалось закрепить заказ');
+    } finally {
+      setClaimingOrderId('');
+    }
+  };
+  const cancelOrder = async (orderId: string) => {
+    setCancellingOrderId(orderId);
+    setError('');
+    try {
+      const response = await fetch('/api/manager/sales', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, action: 'cancel' }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Не удалось отменить оплату');
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Не удалось отменить оплату');
+    } finally {
+      setCancellingOrderId('');
+    }
+  };
+  const syncOrderPayment = async (orderId: string) => {
+    setSyncingOrderId(orderId);
+    setError('');
+    try {
+      const response = await fetch('/api/manager/sales', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ orderId, action: 'sync' }) });
+      const payload = await response.json();
+      if (!response.ok) throw new Error(payload.error || 'Не удалось проверить оплату');
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Не удалось проверить оплату');
+    } finally {
+      setSyncingOrderId('');
+    }
+  };
   return (
     <div>
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[.18em] text-terracotta">
-            Продажи менеджера
-          </p>
-          <h1 className="mt-2 font-serif text-4xl tracking-[-.04em]">Продажи и оплаты</h1>
-          <p className="mt-3 text-sm text-black/50">
-            Все заказы магазина: с сайта и созданные сотрудниками.
-          </p>
-        </div>
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-4"><h1 className="font-serif text-4xl tracking-[-.04em]">Продажи и платежи</h1>{onQueryChange && <div className="relative min-w-60 flex-1"><span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-sm text-black/30">⌕</span><input value={query} onChange={(event) => onQueryChange(event.target.value)} placeholder="Поиск по заказам и клиентам" className="w-full rounded-full border border-black/10 bg-white py-3 pl-10 pr-4 text-xs outline-none focus:border-terracotta"/></div>}</div>
         <button
           onClick={() => setOpen(true)}
           className="rounded-full bg-terracotta px-5 py-3 text-xs font-semibold text-white transition hover:bg-[#242421]"
@@ -174,7 +247,7 @@ export function ManagerSales({
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[.07] px-5 py-4">
           <div>
             <h2 className="font-serif text-2xl">Все заказы</h2>
-            <p className="mt-1 text-[10px] text-black/40">Всего: {orders.length}</p>
+            <p className="mt-1 text-[10px] text-black/40">Всего: {managerOrders.length}</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)} className="rounded-full border border-black/10 bg-white px-3 py-2 text-[10px]"><option value="all">Все источники</option><option value="website">Сайт</option><option value="manager">Менеджеры</option></select>
@@ -226,14 +299,14 @@ export function ManagerSales({
                       </span>
                       <span className="text-[9px] text-black/35">{order.paymentProvider === 'yandex_split' ? 'Яндекс Сплит' : 'Т-Банк'} · {new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' }).format(new Date(order.createdAt))}</span>
                       {needsProcessing && (
-                        <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800">
-                          <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                          Требует обработки
-                        </span>
+                        <button disabled={claimingOrderId === order.id} onClick={() => claimWebsiteOrder(order.id)} className="rounded-full bg-amber-500 px-2.5 py-1 text-[9px] font-bold text-white disabled:opacity-50">
+                          {claimingOrderId === order.id ? 'Закрепляем…' : 'Взять в работу'}
+                        </button>
                       )}
                     </div>
                   </td>
                   <td className="px-5 py-4 text-right">
+                    <div className="flex justify-end gap-3">
                     {order.paymentUrl && order.status !== 'confirmed' ? (
                       <button
                         onClick={() => navigator.clipboard.writeText(order.paymentUrl!)}
@@ -244,6 +317,17 @@ export function ManagerSales({
                     ) : (
                       '—'
                     )}
+                    {order.managerUserId === managerUserId && !['confirmed', 'cancelled', 'canceled', 'reversed', 'refunded', 'cancellation_pending'].includes(order.status) && (
+                      <button disabled={syncingOrderId === order.id} onClick={() => syncOrderPayment(order.id)} className="font-semibold text-black/55 hover:text-black disabled:opacity-50">
+                        {syncingOrderId === order.id ? 'Проверяем…' : 'Проверить'}
+                      </button>
+                    )}
+                    {order.managerUserId === managerUserId && !['cancelled', 'canceled', 'reversed', 'refunded', 'cancellation_pending'].includes(order.status) && (
+                      <button disabled={cancellingOrderId === order.id} onClick={() => cancelOrder(order.id)} className="font-semibold text-red-600 hover:underline disabled:opacity-50">
+                        {cancellingOrderId === order.id ? 'Обрабатываем…' : order.status === 'confirmed' ? 'Возврат' : 'Отменить'}
+                      </button>
+                    )}
+                    </div>
                   </td>
                 </tr>
                 );
@@ -251,7 +335,7 @@ export function ManagerSales({
             </tbody>
           </table>
           {visibleOrders.length === 0 && (
-            <p className="py-12 text-center text-sm text-black/40">{orders.length ? 'По выбранным условиям платежей нет' : 'Платежей пока нет'}</p>
+            <p className="py-12 text-center text-sm text-black/40">{managerOrders.length ? 'По выбранным условиям платежей нет' : 'У вас пока нет продаж и заказов в работе'}</p>
           )}
         </div>
       </section>
@@ -350,44 +434,31 @@ export function ManagerSales({
                       {items.map((item) => {
                         const product = products.find((entry) => entry.id === item.productId)!;
                         return (
-                          <div
-                            key={item.productId}
-                            className="flex items-center gap-3 rounded-xl bg-white p-3 text-xs"
-                          >
-                            <span className="min-w-0 flex-1 truncate">{product.name}</span>
-                            <input
-                              type="number"
-                              min="1"
-                              max="10"
-                              value={item.quantity}
-                              onChange={(event) =>
-                                setItems((current) =>
-                                  current.map((entry) =>
-                                    entry.productId === item.productId
-                                      ? {
-                                          ...entry,
-                                          quantity: Math.max(
-                                            1,
-                                            Math.min(10, Number(event.target.value)),
-                                          ),
-                                        }
-                                      : entry,
-                                  ),
-                                )
-                              }
-                              className="w-14 rounded-lg border border-black/10 px-2 py-1.5"
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                setItems((current) =>
-                                  current.filter((entry) => entry.productId !== item.productId),
-                                )
-                              }
-                              className="text-red-500"
-                            >
-                              ×
-                            </button>
+                          <div key={item.productId} className="rounded-xl bg-white p-3 text-xs">
+                            <div className="flex items-start gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-semibold">{product.name}</p>
+                                <p className="mt-1 text-[10px] text-black/40">Цена по каталогу: {money(product.price * 100)}</p>
+                              </div>
+                              <button type="button" onClick={() => setItems((current) => current.filter((entry) => entry.productId !== item.productId))} className="text-red-500">×</button>
+                            </div>
+                            <div className="mt-3 grid grid-cols-3 gap-2">
+                              <label className="text-[9px] text-black/45">Количество
+                                <input type="number" min="1" max="10" value={item.quantity} onChange={(event) => setItems((current) => current.map((entry) => entry.productId === item.productId ? { ...entry, quantity: Math.max(1, Math.min(10, Number(event.target.value))) } : entry))} className="mt-1 w-full rounded-lg border border-black/10 px-2 py-2 text-xs" />
+                              </label>
+                              <label className="text-[9px] text-black/45">Цена продажи, ₽
+                                <input type="number" min={item.purchaseCostRubles || 1} max={product.price} step="1" value={item.salePriceRubles} onChange={(event) => setItems((current) => current.map((entry) => entry.productId === item.productId ? { ...entry, salePriceRubles: Math.max(0, Number(event.target.value)) } : entry))} className="mt-1 w-full rounded-lg border border-black/10 px-2 py-2 text-xs" />
+                              </label>
+                              <label className="text-[9px] text-black/45">Закупка, ₽
+                                <input required type="number" min="1" step="1" disabled={item.purchaseCostFromCatalog} value={item.purchaseCostRubles ?? ''} placeholder="Обязательно" onChange={(event) => setItems((current) => current.map((entry) => entry.productId === item.productId ? { ...entry, purchaseCostRubles: event.target.value ? Math.max(0, Number(event.target.value)) : null } : entry))} className={`mt-1 w-full rounded-lg border px-2 py-2 text-xs ${item.purchaseCostRubles ? 'border-black/10' : 'border-red-300 bg-red-50'} disabled:bg-black/[.04]`} />
+                              </label>
+                            </div>
+                            <div className="mt-2 flex justify-between text-[10px]">
+                              <span className="text-terracotta">Скидка: {money(Math.max(0, product.price - item.salePriceRubles) * item.quantity * 100)}</span>
+                              <span className="font-semibold text-emerald-700">Прибыль: {money(Math.max(0, item.salePriceRubles - (item.purchaseCostRubles || 0)) * item.quantity * 100)}</span>
+                            </div>
+                            {!item.purchaseCostRubles && <p className="mt-2 text-[10px] font-semibold text-red-600">В каталоге нет закупочной цены — заполните её</p>}
+                            {item.purchaseCostRubles && item.salePriceRubles < item.purchaseCostRubles && <p className="mt-2 text-[10px] font-semibold text-red-600">Цена продажи ниже закупочной</p>}
                           </div>
                         );
                       })}
@@ -397,10 +468,11 @@ export function ManagerSales({
                         </p>
                       )}
                     </div>
-                    <p className="mt-4 flex justify-between border-t border-black/10 pt-4 font-semibold">
-                      <span>Итого</span>
-                      <span>{money(total)}</span>
-                    </p>
+                    <div className="mt-4 space-y-1 border-t border-black/10 pt-4 text-xs">
+                      <p className="flex justify-between"><span>Себестоимость</span><span>{money(totalCost)}</span></p>
+                      <p className="flex justify-between font-semibold text-emerald-700"><span>Валовая прибыль</span><span>{money(Math.max(0, total - totalCost))}</span></p>
+                      <p className="flex justify-between pt-1 font-semibold"><span>Итого клиенту</span><span>{money(total)}</span></p>
+                    </div>
                   </section>
                   <section>
                     <h3 className="text-xs font-semibold">2. Клиент</h3>
