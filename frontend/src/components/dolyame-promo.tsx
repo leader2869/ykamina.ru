@@ -20,6 +20,19 @@ export function DolyameInline({ firstPayment }: { firstPayment?: string }) {
   </span>;
 }
 
+export function DolyameCardPrice({ firstPayment }: { firstPayment: string }) {
+  return <span className="inline-flex shrink-0 flex-col items-start rounded-xl bg-[#f3f9ff] px-2.5 py-2">
+    <Image
+      src="/images/dolyami-logo-black.svg"
+      alt="Долями"
+      width={76}
+      height={15}
+      className="h-auto w-[76px]"
+    />
+    <span className="mt-1 text-[9px] font-medium leading-3 text-ink/60">Предоплата от {firstPayment}</span>
+  </span>;
+}
+
 export function DolyamePromo() {
   return <section className="overflow-hidden bg-[#f3f9ff]">
     <div className="container-page grid gap-10 py-16 sm:py-20 lg:grid-cols-[1.15fr_.85fr] lg:items-center">
