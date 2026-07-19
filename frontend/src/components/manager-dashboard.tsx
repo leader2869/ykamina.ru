@@ -37,11 +37,11 @@ function Icon({ name, className = 'h-5 w-5' }: { name: IconName; className?: str
 
 const navItems: { label: string; icon: IconName }[] = [
   { label: 'Обзор', icon: 'home' },
+  { label: 'Каталог', icon: 'catalog' },
   { label: 'Клиенты', icon: 'users' },
   { label: 'Сделки', icon: 'funnel' },
   { label: 'Платежи', icon: 'chart' },
   { label: 'Задачи', icon: 'check' },
-  { label: 'Каталог', icon: 'catalog' },
   { label: 'Аналитика', icon: 'chart' },
 ];
 
