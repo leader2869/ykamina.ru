@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 
 const slides = [
+  { kicker: 'Домашнее тепло', title: 'Место, где вас всегда ждут', text: 'Создайте уютный уголок для тихих вечеров рядом с теми, кто дорог.', image: '/images/hero-labrador-v1.png' },
   { kicker: 'У камина', title: 'Там, где дому становится теплее', text: 'Выберите камин, вокруг которого захочется собираться всей семьёй.', image: '/images/hero-family-v1.png' },
   { kicker: 'Тепло без спешки', title: 'Вечера, которые хочется продлить', text: 'Подберём модель, рассчитаем монтаж и доставим в любой регион.', image: '/images/hero-woman-v1.png' },
 ];
