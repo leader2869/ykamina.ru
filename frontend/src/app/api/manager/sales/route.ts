@@ -5,6 +5,7 @@ import { getProduct } from '@/lib/catalog-repository';
 import { createPaymentOrder, markPaymentInitialized, markPaymentInitFailed } from '@/lib/payment-orders';
 import { initTBankPayment } from '@/lib/tbank';
 import { buildTBankReceipt } from '@/lib/tbank-receipt';
+import { getManagerCrmPool } from '@/lib/manager-crm';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,7 +38,23 @@ export async function POST(request: Request) {
     const orderId = randomUUID().replaceAll('-', '');
     const storedItems = products.map((product, index) => ({ productId: product!.id, name: product!.name, priceKopecks: Math.round(product!.price * 100), quantity: items[index].quantity }));
     const receipt = buildTBankReceipt(storedItems, { email, phone });
-    await createPaymentOrder({ id: orderId, amountKopecks: amount, name, email, phone, city, comment, items: storedItems, receipt, source: 'manager', managerUserId: user.id, auditActorUserId: user.id });
+    let salesClientId: string | null = null;
+    let salesDealId: string | null = null;
+    if (user.role === 'sales_manager') {
+      const crm = getManagerCrmPool();
+      const existingClient = await crm.query<{ id: string }>('SELECT id FROM sales_clients WHERE manager_user_id=$1 AND LOWER(email)=LOWER($2) LIMIT 1', [user.id, email]);
+      if (existingClient.rows[0]) {
+        salesClientId = String(existingClient.rows[0].id);
+        await crm.query('UPDATE sales_clients SET full_name=$1,phone=$2,city=$3,updated_at=NOW() WHERE id=$4', [name, phone, city, salesClientId]);
+      } else {
+        const client = await crm.query<{ id: string }>(`INSERT INTO sales_clients (manager_user_id,full_name,phone,email,city,source,notes) VALUES ($1,$2,$3,$4,$5,'manager',$6) RETURNING id`, [user.id, name, phone, email.toLowerCase(), city, comment || null]);
+        salesClientId = String(client.rows[0].id);
+      }
+      const deal = await crm.query<{ id: string }>(`INSERT INTO sales_deals (manager_user_id,client_id,title,stage,amount_kopecks,probability,product_interest,notes) VALUES ($1,$2,$3,'awaiting_payment',$4,70,$5,$6) RETURNING id`, [user.id, salesClientId, `Продажа: ${storedItems[0].name}`.slice(0, 240), amount, storedItems.map((item) => item.name).join(', '), comment || null]);
+      salesDealId = String(deal.rows[0].id);
+      await crm.query(`INSERT INTO sales_activities (manager_user_id,client_id,deal_id,action,description) VALUES ($1,$2,$3,'payment.created',$4)`, [user.id, salesClientId, salesDealId, `Сформирована ссылка на оплату на ${Math.round(amount / 100).toLocaleString('ru-RU')} ₽`]);
+    }
+    await createPaymentOrder({ id: orderId, amountKopecks: amount, name, email, phone, city, comment, items: storedItems, receipt, source: 'manager', managerUserId: user.id, auditActorUserId: user.id, salesClientId, salesDealId });
 
     try {
       const configuredBaseUrl = process.env.NEXT_PUBLIC_SITE_URL;
