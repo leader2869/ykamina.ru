@@ -3,7 +3,6 @@ import { DolyamePromo } from '@/components/dolyame-promo';
 import { PromoCarousel } from '@/components/promo-carousel';
 import { SalesCarousel } from '@/components/sales-carousel';
 import { getSaleProducts } from '@/lib/catalog-repository';
-import { DolyamePromo } from '@/components/dolyame-promo';
 
 export const dynamic = 'force-dynamic';
 
