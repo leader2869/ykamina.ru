@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { DolyamePromo } from '@/components/dolyame-promo';
 import { PromoCarousel } from '@/components/promo-carousel';
 import { SalesCarousel } from '@/components/sales-carousel';
 import { getSaleProducts } from '@/lib/catalog-repository';
