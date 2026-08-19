@@ -16,6 +16,8 @@ fi
 
 app_root="/srv/ykamina"
 releases_dir="$app_root/releases"
+shared_dir="$app_root/shared"
+shared_database_environment="$shared_dir/database.env"
 release_dir="$releases_dir/$commit_sha"
 current_link="$app_root/current"
 staging_dir="$app_root/.staging-$commit_sha-$$"
@@ -48,7 +50,7 @@ tar -xzf "$archive_file" -C "$staging_dir"
 
 umask 077
 environment_file="$staging_dir/frontend/.env.production"
-: > "$environment_file"
+: > "$environment_file.remote"
 for expected_key in DATABASE_URL DATABASE_PUBLIC_HOST DATABASE_SSL_REJECT_UNAUTHORIZED; do
   IFS= read -r line || {
     echo "Missing database configuration." >&2
@@ -58,8 +60,14 @@ for expected_key in DATABASE_URL DATABASE_PUBLIC_HOST DATABASE_SSL_REJECT_UNAUTH
     echo "Invalid database configuration." >&2
     exit 2
   fi
-  printf '%s\n' "$line" >> "$environment_file"
+  printf '%s\n' "$line" >> "$environment_file.remote"
 done
+if [[ -s "$shared_database_environment" ]]; then
+  install -m 600 "$shared_database_environment" "$environment_file"
+else
+  mv "$environment_file.remote" "$environment_file"
+fi
+rm -f "$environment_file.remote"
 chmod 600 "$environment_file"
 ln -sfn .env.production "$staging_dir/frontend/.env.local"
 
