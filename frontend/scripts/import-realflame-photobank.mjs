@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { access, mkdir, writeFile } from 'node:fs/promises';
+import { access, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import pg from 'pg';
+import sharp from 'sharp';
 import { refreshProductVisibility } from './lib/refresh-product-visibility.mjs';
 
 const publicKey = 'https://disk.yandex.ru/d/75LasP9HNbhxGQ';
@@ -12,6 +13,7 @@ const outputDir = join(process.cwd(), 'public', 'media', 'realflame');
 const maxImagesPerProduct = Math.max(1, Number(process.env.REALFLAME_PHOTOBANK_MAX_IMAGES || 3));
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required.');
+sharp.cache(false);
 
 const { Client } = pg;
 const client = new Client({ connectionString: databaseUrl });
@@ -58,23 +60,40 @@ async function download(file) {
   if (downloaded.has(file.path)) return downloaded.get(file.path);
   const task = (async () => {
     const extension = (extname(file.name) || '.jpg').toLowerCase();
-    const filename = `${createHash('sha256').update(file.path).digest('hex').slice(0, 24)}${extension}`;
-    const publicPath = `/media/realflame/${filename}`;
+    const hash = createHash('sha256').update(file.path).digest('hex').slice(0, 24);
+    const filename = `${hash}${extension}`;
+    const previewFilename = `${hash}-catalog.webp`;
+    const previewPath = join(outputDir, previewFilename);
+    const publicPath = `/media/realflame/${previewFilename}`;
     try {
-      await access(join(outputDir, filename));
+      await access(previewPath);
       return publicPath;
     } catch {
-      // Download the asset below when it is not already in shared storage.
+      // Create the optimized preview below when it is not already cached.
     }
-    const url = new URL(downloadApiUrl);
-    url.searchParams.set('public_key', publicKey);
-    url.searchParams.set('path', file.path);
-    const meta = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-    if (!meta.ok) throw new Error(`Download URL HTTP ${meta.status}`);
-    const href = (await meta.json()).href;
-    const asset = await fetch(href, { signal: AbortSignal.timeout(40_000) });
-    if (!asset.ok) throw new Error(`Image HTTP ${asset.status}`);
-    await writeFile(join(outputDir, filename), Buffer.from(await asset.arrayBuffer()));
+    let source;
+    try {
+      source = await readFile(join(outputDir, filename));
+    } catch {
+      // Download the original below when it is not already in shared storage.
+    }
+    if (!source) {
+      const url = new URL(downloadApiUrl);
+      url.searchParams.set('public_key', publicKey);
+      url.searchParams.set('path', file.path);
+      const meta = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      if (!meta.ok) throw new Error(`Download URL HTTP ${meta.status}`);
+      const href = (await meta.json()).href;
+      const asset = await fetch(href, { signal: AbortSignal.timeout(40_000) });
+      if (!asset.ok) throw new Error(`Image HTTP ${asset.status}`);
+      source = Buffer.from(await asset.arrayBuffer());
+      await writeFile(join(outputDir, filename), source);
+    }
+    await sharp(source)
+      .rotate()
+      .resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true })
+      .webp({ quality: 78, effort: 4 })
+      .toFile(previewPath);
     return publicPath;
   })();
   downloaded.set(file.path, task);

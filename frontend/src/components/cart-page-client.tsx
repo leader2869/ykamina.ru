@@ -15,7 +15,8 @@ export function CartPageClient() {
   useEffect(() => {
     const cart = readCart();
     setItems(cart);
-    fetch('/api/products').then((response) => response.json()).then(({ data }) => setProducts(data || [])).finally(() => setLoaded(true));
+    if (!cart.length) { setLoaded(true); return; }
+    fetch(`/api/products?ids=${encodeURIComponent(cart.map((item) => item.productId).join(','))}`).then((response) => response.json()).then(({ data }) => setProducts(data || [])).finally(() => setLoaded(true));
   }, []);
 
   const rows = useMemo(() => items.map((item) => ({ item, product: products.find((product) => product.id === item.productId) })).filter((row): row is { item: CartItem; product: Product } => Boolean(row.product)), [items, products]);

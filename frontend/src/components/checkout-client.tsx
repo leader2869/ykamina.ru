@@ -13,8 +13,10 @@ export function CheckoutClient() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    setItems(readCart());
-    fetch('/api/products').then((response) => response.json()).then(({ data }) => setProducts(data || [])).finally(() => setLoading(false));
+    const cart = readCart();
+    setItems(cart);
+    if (!cart.length) { setLoading(false); return; }
+    fetch(`/api/products?ids=${encodeURIComponent(cart.map((item) => item.productId).join(','))}`).then((response) => response.json()).then(({ data }) => setProducts(data || [])).finally(() => setLoading(false));
   }, []);
   const rows = items.map((item) => ({ item, product: products.find((product) => product.id === item.productId) })).filter((row): row is { item: CartItem; product: Product } => Boolean(row.product));
   const total = rows.reduce((sum, row) => sum + row.product.price * row.item.quantity, 0);
