@@ -12,6 +12,7 @@ postgres_version="18"
 database_name="ykamina"
 database_user="ykamina"
 service_name="ykamina.service"
+service_environment="/etc/ykamina/ykamina.env"
 
 if [[ ! -d "$current_link/frontend" ]]; then
   echo "The current production release was not found." >&2
@@ -47,6 +48,8 @@ if [[ -s "$local_environment" ]]; then
   source "$local_environment"
   set +a
   psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -Atqc 'SELECT 1' >/dev/null
+  sudo ln -sfn "$local_environment" "$service_environment"
+  sudo systemctl restart "$service_name"
   echo "Existing local PostgreSQL configuration is healthy."
   exit 0
 fi
@@ -118,8 +121,11 @@ timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
 remote_backup="$backup_dir/remote-before-local-$timestamp.dump"
 current_environment="$current_link/frontend/.env.production"
 previous_environment="$backup_dir/remote-environment-$timestamp"
+previous_service_environment="$backup_dir/remote-service-environment-$timestamp"
 cp "$current_environment" "$previous_environment"
+sudo cp -L "$service_environment" "$previous_service_environment"
 chmod 600 "$previous_environment"
+sudo chmod 600 "$previous_service_environment"
 
 service_was_stopped=false
 restore_remote_service() {
@@ -128,6 +134,8 @@ restore_remote_service() {
     rm -f -- "$local_environment" "$candidate_environment"
     rm -f -- "$current_environment"
     install -m 600 "$previous_environment" "$current_environment"
+    sudo rm -f -- "$service_environment"
+    sudo install -m 600 "$previous_service_environment" "$service_environment"
     ln -sfn .env.production "$current_link/frontend/.env.local"
     sudo systemctl restart "$service_name" || true
     sudo -u postgres dropdb --if-exists "$database_name" || true
@@ -166,6 +174,7 @@ done
 chmod 600 "$candidate_environment"
 
 install -m 600 "$candidate_environment" "$current_environment"
+sudo install -m 600 "$candidate_environment" "$service_environment"
 ln -sfn .env.production "$current_link/frontend/.env.local"
 sudo systemctl restart "$service_name"
 
@@ -192,6 +201,8 @@ fi
 mv "$candidate_environment" "$local_environment"
 rm -f "$current_environment"
 ln -s "$local_environment" "$current_environment"
+sudo rm -f "$service_environment"
+sudo ln -s "$local_environment" "$service_environment"
 ln -sfn .env.production "$current_link/frontend/.env.local"
 
 backup_script="$bin_dir/backup-local-postgres"
