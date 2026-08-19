@@ -19,9 +19,12 @@ const stopWords = new Set(['электрокамин', 'электроочаг',
 const normalizeTokens = (value) => [...new Set(String(value).toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter((token) => token.length > 1 && !stopWords.has(token)))];
 const similarity = (productName, folderName) => {
   const left = normalizeTokens(productName);
-  const right = new Set(normalizeTokens(folderName));
+  const rightTokens = normalizeTokens(folderName);
+  const right = new Set(rightTokens);
   const matches = left.filter((token) => right.has(token));
-  return { matches: matches.length, score: matches.length / Math.max(left.length, 1) };
+  const productCoverage = matches.length / Math.max(left.length, 1);
+  const folderCoverage = matches.length / Math.max(rightTokens.length, 1);
+  return { matches: matches.length, folderCoverage, score: folderCoverage * 0.75 + productCoverage * 0.25 };
 };
 const isImage = (item) => item.type === 'file' && /^image\/(jpeg|png|webp)$/i.test(item.mime_type || '');
 
@@ -112,7 +115,7 @@ try {
       const result = similarity(product.name, folder);
       if (!best || result.score > best.score || (result.score === best.score && result.matches > best.matches)) best = { ...result, folder, folderFiles };
     }
-    if (best && best.matches >= 2 && best.score >= 0.5) matches.push({ product, ...best });
+    if (best && best.matches >= 2 && best.folderCoverage >= 0.6 && best.score >= 0.55) matches.push({ product, ...best });
   }
   let cursor = 0;
   let updated = 0;
