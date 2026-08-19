@@ -53,7 +53,7 @@ fi
 
 install -d -m 700 "$shared_dir" "$backup_dir" "$bin_dir"
 
-if ! command -v "/usr/lib/postgresql/$postgres_version/bin/pg_dump" >/dev/null 2>&1; then
+if [[ ! -x "/usr/lib/postgresql/$postgres_version/bin/postgres" ]] || ! command -v pg_conftool >/dev/null 2>&1; then
   sudo apt-get update
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl gnupg
   sudo install -d -m 755 /usr/share/postgresql-common/pgdg
@@ -67,7 +67,10 @@ if ! command -v "/usr/lib/postgresql/$postgres_version/bin/pg_dump" >/dev/null 2
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "postgresql-$postgres_version" "postgresql-client-$postgres_version"
 fi
 
-sudo pg_conftool "$postgres_version" main set listen_addresses '127.0.0.1'
+# pg_conftool writes string values verbatim on Ubuntu 26.04. Writing the
+# address through it either omits the required quotes or double-escapes them.
+sudo sed -Ei "s|^[#[:space:]]*listen_addresses[[:space:]]*=.*|listen_addresses = '127.0.0.1'|" \
+  "/etc/postgresql/$postgres_version/main/postgresql.conf"
 sudo pg_conftool "$postgres_version" main set max_connections '40'
 sudo pg_conftool "$postgres_version" main set shared_buffers '128MB'
 sudo pg_conftool "$postgres_version" main set effective_cache_size '512MB'
@@ -140,7 +143,7 @@ PGCONNECT_TIMEOUT=20 "/usr/lib/postgresql/$postgres_version/bin/pg_dump" \
   --format=custom --compress=6 --no-owner --no-acl \
   --file="$remote_backup" "$remote_database_url"
 
-local_database_url="postgresql://$database_user:$local_password@127.0.0.1:5432/$database_name"
+local_database_url="postgresql://$database_user:$local_password@127.0.0.1:5432/$database_name?sslmode=disable"
 PGCONNECT_TIMEOUT=10 "/usr/lib/postgresql/$postgres_version/bin/pg_restore" \
   --exit-on-error --no-owner --no-acl --dbname="$local_database_url" "$remote_backup"
 
@@ -158,7 +161,7 @@ done
 {
   printf 'DATABASE_URL=%s\n' "$local_database_url"
   printf 'DATABASE_PUBLIC_HOST=\n'
-  printf 'DATABASE_SSL_REJECT_UNAUTHORIZED=true\n'
+  printf 'DATABASE_SSL_REJECT_UNAUTHORIZED=false\n'
 } > "$candidate_environment"
 chmod 600 "$candidate_environment"
 
@@ -182,6 +185,7 @@ done
 
 if [[ "$healthy" != true ]]; then
   echo "The application failed its local PostgreSQL health check." >&2
+  restore_remote_service
   exit 1
 fi
 
@@ -207,7 +211,7 @@ mkdir -p "$backup_dir"
 find "$backup_dir" -type f -name 'local-*.dump' -mtime +7 -delete
 BACKUP
 chmod 700 "$backup_script"
-deploy_user="$(id -un)"
+deploy_user="$(stat -Lc '%U' "$current_link")"
 printf '15 3 * * * %s %s\n' "$deploy_user" "$backup_script" \
   | sudo tee /etc/cron.d/ykamina-local-postgres-backup >/dev/null
 sudo chmod 644 /etc/cron.d/ykamina-local-postgres-backup
