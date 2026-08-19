@@ -1,0 +1,46 @@
+name: Migrate production database to local PostgreSQL
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: production-database-migration
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://ykamina.ru
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+      - name: Migrate to local PostgreSQL
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_PUBLIC_HOST: ${{ secrets.DATABASE_PUBLIC_HOST }}
+          DATABASE_SSL_REJECT_UNAUTHORIZED: ${{ secrets.DATABASE_SSL_REJECT_UNAUTHORIZED }}
+        run: |
+          script="/tmp/ykamina-migrate-local-postgres"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes deploy/server-migrate-local-postgres.sh "$DEPLOY_USER@$DEPLOY_HOST:$script"
+          {
+            printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
+            printf 'DATABASE_PUBLIC_HOST=%s\n' "$DATABASE_PUBLIC_HOST"
+            printf 'DATABASE_SSL_REJECT_UNAUTHORIZED=%s\n' "$DATABASE_SSL_REJECT_UNAUTHORIZED"
+          } | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "chmod 700 '$script'; '$script'"
