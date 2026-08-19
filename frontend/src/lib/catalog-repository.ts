@@ -24,6 +24,20 @@ type DatabaseRow = {
 
 export type CatalogCategory = { name: string; slug: string; children: { name: string; slug: string; count: number }[] };
 export type HeaderCategoryPreview = { images: string[] };
+export type CatalogSort = 'popular' | 'low' | 'high';
+export type CatalogQuery = {
+  category?: string;
+  types?: string[];
+  minPrice?: number;
+  maxPrice?: number;
+  width?: 'compact' | 'medium' | 'large';
+  height?: 'compact' | 'medium' | 'large';
+  sort?: CatalogSort;
+  page?: number;
+  pageSize?: number;
+};
+export type CatalogFacets = { priceRange: { min: number; max: number }; types: string[] };
+export type CatalogPage = { data: Product[]; total: number; page: number; pageSize: number; facets?: CatalogFacets };
 
 const globalForDatabase = global as typeof globalThis & { catalogPool?: Pool };
 const databaseConnectionString = getDatabaseConnectionString();
@@ -44,6 +58,118 @@ function mapRow(row: DatabaseRow): Product {
     availability: row.availability || undefined, specifications: row.specifications || undefined,
     isPublished: row.is_published, visibilityComment: row.visibility_comment,
   };
+}
+
+function dimensionCondition(column: 'width' | 'height', range: CatalogQuery['width']) {
+  const value = `(p.dimensions->>'${column}')::numeric`;
+  if (range === 'compact') return `${value} < 600`;
+  if (range === 'medium') return `${value} >= 600 AND ${value} < 1000`;
+  if (range === 'large') return `${value} >= 1000`;
+  return '';
+}
+
+function catalogWhere(query: CatalogQuery) {
+  const conditions = ['p.is_published = TRUE'];
+  const values: unknown[] = [];
+  const add = (condition: string, value: unknown) => {
+    values.push(value);
+    conditions.push(condition.replace('?', `$${values.length}`));
+  };
+  if (query.category) {
+    values.push(query.category, query.category);
+    conditions.push(`(c.slug = $${values.length - 1} OR parent.slug = $${values.length})`);
+  }
+  if (query.types?.length) add('c.name = ANY(?::text[])', query.types);
+  if (query.minPrice) add('p.price >= ?', query.minPrice);
+  if (query.maxPrice) add('p.price <= ?', query.maxPrice);
+  const width = dimensionCondition('width', query.width);
+  const height = dimensionCondition('height', query.height);
+  if (width) conditions.push(width);
+  if (height) conditions.push(height);
+  return { sql: conditions.join(' AND '), values };
+}
+
+function leanMapRow(row: DatabaseRow): Product {
+  const product = mapRow(row);
+  return { ...product, description: '', dimensions: '', specifications: undefined, availability: undefined };
+}
+
+export async function getCatalogPage(query: CatalogQuery = {}, includeFacets = false): Promise<CatalogPage> {
+  const page = Math.max(1, Math.floor(query.page || 1));
+  const pageSize = Math.min(48, Math.max(1, Math.floor(query.pageSize || 24)));
+  if (!pool) {
+    const sorted = [...demoProducts].sort((left, right) => query.sort === 'low' ? left.price - right.price : query.sort === 'high' ? right.price - left.price : left.name.localeCompare(right.name, 'ru'));
+    return { data: sorted.slice((page - 1) * pageSize, page * pageSize), total: sorted.length, page, pageSize, facets: includeFacets ? { priceRange: { min: Math.min(...sorted.map((product) => product.price)), max: Math.max(...sorted.map((product) => product.price)) }, types: Array.from(new Set(sorted.map((product) => product.type))) } : undefined };
+  }
+  const where = catalogWhere(query);
+  const order = query.sort === 'low' ? 'p.price ASC, p.name ASC' : query.sort === 'high' ? 'p.price DESC, p.name ASC' : `
+    CASE WHEN p.images->>0 LIKE '/media/realflame/%' THEN 0 ELSE 1 END,
+    CASE
+      WHEN LOWER(COALESCE(p.availability->>'moscow', '')) = 'много' OR LOWER(COALESCE(p.availability->>'saintPetersburg', '')) = 'много' THEN 0
+      WHEN LOWER(COALESCE(p.availability->>'moscow', '')) = 'мало' OR LOWER(COALESCE(p.availability->>'saintPetersburg', '')) = 'мало' THEN 1
+      ELSE 2
+    END,
+    p.name ASC`;
+  const offset = (page - 1) * pageSize;
+  try {
+    const values = [...where.values, pageSize, offset];
+    const result = await pool.query<DatabaseRow & { total_count: string }>(
+      `SELECT p.id, p.name, p.slug, '' AS description, p.price, p.old_price,
+              CASE WHEN COALESCE(jsonb_array_length(p.images), 0) > 0 THEN jsonb_build_array(p.images->0) ELSE '[]'::jsonb END AS images,
+              p.stock, NULL::text AS supplier_sku, '{}'::jsonb AS dimensions, NULL::jsonb AS availability,
+              NULL::jsonb AS specifications, c.name AS category_name, parent.name AS parent_category_name,
+              COUNT(*) OVER() AS total_count
+       FROM products p
+       LEFT JOIN categories c ON c.id = p.category_id
+       LEFT JOIN categories parent ON parent.id = c.parent_id
+       WHERE ${where.sql}
+       ORDER BY ${order}
+       LIMIT $${values.length - 1} OFFSET $${values.length}`,
+      values,
+    );
+    let facets: CatalogFacets | undefined;
+    if (includeFacets) {
+      const facetWhere = catalogWhere({ category: query.category });
+      const facetResult = await pool.query<{ min_price: string | null; max_price: string | null; types: string[] | null }>(
+        `SELECT MIN(p.price) AS min_price, MAX(p.price) AS max_price,
+                ARRAY_AGG(DISTINCT c.name ORDER BY c.name) FILTER (WHERE c.name IS NOT NULL) AS types
+         FROM products p
+         LEFT JOIN categories c ON c.id = p.category_id
+         LEFT JOIN categories parent ON parent.id = c.parent_id
+         WHERE ${facetWhere.sql}`,
+        facetWhere.values,
+      );
+      const row = facetResult.rows[0];
+      facets = { priceRange: { min: Number(row?.min_price || 0), max: Number(row?.max_price || 0) }, types: row?.types || [] };
+    }
+    return { data: result.rows.map(leanMapRow), total: Number(result.rows[0]?.total_count || 0), page, pageSize, facets };
+  } catch (error) {
+    console.error('Catalog page database fallback:', error);
+    return { data: [], total: 0, page, pageSize, facets: includeFacets ? { priceRange: { min: 0, max: 0 }, types: [] } : undefined };
+  }
+}
+
+export async function getProductsByIds(ids: string[]): Promise<Product[]> {
+  const cleanIds = Array.from(new Set(ids.filter((id) => /^\d+$/.test(id)))).slice(0, 50);
+  if (!cleanIds.length) return [];
+  if (!pool) return demoProducts.filter((product) => cleanIds.includes(product.id));
+  try {
+    const result = await pool.query<DatabaseRow>(
+      `SELECT p.id, p.name, p.slug, '' AS description, p.price, p.old_price,
+              CASE WHEN COALESCE(jsonb_array_length(p.images), 0) > 0 THEN jsonb_build_array(p.images->0) ELSE '[]'::jsonb END AS images,
+              p.stock, p.supplier_sku, '{}'::jsonb AS dimensions, NULL::jsonb AS availability,
+              NULL::jsonb AS specifications, c.name AS category_name, parent.name AS parent_category_name
+       FROM products p
+       LEFT JOIN categories c ON c.id = p.category_id
+       LEFT JOIN categories parent ON parent.id = c.parent_id
+       WHERE p.is_published = TRUE AND p.id = ANY($1::bigint[])`,
+      [cleanIds],
+    );
+    return result.rows.map(leanMapRow);
+  } catch (error) {
+    console.error('Product selection database fallback:', error);
+    return [];
+  }
 }
 
 async function queryProducts(categorySlug?: string): Promise<Product[] | null> {
