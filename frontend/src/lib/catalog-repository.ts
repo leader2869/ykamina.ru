@@ -115,6 +115,7 @@ export async function getHeaderCategoryPreviews(): Promise<Record<string, Header
          WHERE p.is_published = TRUE
            AND parent.slug = ANY($1::text[])
            AND COALESCE(jsonb_array_length(p.images), 0) > 0
+           AND p.images->>0 LIKE '/media/realflame/%'
        ) previews
        WHERE row_number <= 6
        ORDER BY category_slug, row_number`,

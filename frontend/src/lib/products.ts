@@ -41,6 +41,7 @@ export function catalogProductRank(product: Product) {
 
 export function compareCatalogProducts(left: Product, right: Product) {
   return catalogProductRank(left) - catalogProductRank(right)
+    || Number(!left.image.startsWith('/media/realflame/')) - Number(!right.image.startsWith('/media/realflame/'))
     || left.name.localeCompare(right.name, 'ru');
 }
 
