@@ -18,6 +18,7 @@ app_root="/srv/ykamina"
 releases_dir="$app_root/releases"
 shared_dir="$app_root/shared"
 shared_database_environment="$shared_dir/database.env"
+shared_realflame_media="$shared_dir/media/realflame"
 release_dir="$releases_dir/$commit_sha"
 current_link="$app_root/current"
 staging_dir="$app_root/.staging-$commit_sha-$$"
@@ -47,6 +48,13 @@ trap cleanup EXIT
 
 install -d -m 755 "$app_root" "$releases_dir" "$staging_dir"
 tar -xzf "$archive_file" -C "$staging_dir"
+
+# Supplier images are downloaded after a release is built. Keep them outside
+# immutable release directories so a deployment cannot make the catalog lose
+# its photos.
+install -d -m 755 "$shared_realflame_media" "$staging_dir/frontend/public/media"
+rm -rf -- "$staging_dir/frontend/public/media/realflame"
+ln -s "$shared_realflame_media" "$staging_dir/frontend/public/media/realflame"
 
 umask 077
 environment_file="$staging_dir/frontend/.env.production"

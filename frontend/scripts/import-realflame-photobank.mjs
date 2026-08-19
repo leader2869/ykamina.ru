@@ -1,4 +1,5 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, mkdir, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
 import pg from 'pg';
 import { refreshProductVisibility } from './lib/refresh-product-visibility.mjs';
@@ -8,6 +9,7 @@ const rootPath = '/фотобанк RealFlame';
 const apiUrl = 'https://cloud-api.yandex.net/v1/disk/public/resources';
 const downloadApiUrl = 'https://cloud-api.yandex.net/v1/disk/public/resources/download';
 const outputDir = join(process.cwd(), 'public', 'media', 'realflame');
+const maxImagesPerProduct = Math.max(1, Number(process.env.REALFLAME_PHOTOBANK_MAX_IMAGES || 3));
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error('DATABASE_URL is required.');
 
@@ -48,17 +50,37 @@ async function listFiles() {
   return files.filter(isImage);
 }
 
-async function download(file, filename) {
-  const url = new URL(downloadApiUrl);
-  url.searchParams.set('public_key', publicKey);
-  url.searchParams.set('path', file.path);
-  const meta = await fetch(url, { signal: AbortSignal.timeout(20_000) });
-  if (!meta.ok) throw new Error(`Download URL HTTP ${meta.status}`);
-  const href = (await meta.json()).href;
-  const asset = await fetch(href, { signal: AbortSignal.timeout(40_000) });
-  if (!asset.ok) throw new Error(`Image HTTP ${asset.status}`);
-  await writeFile(join(outputDir, filename), Buffer.from(await asset.arrayBuffer()));
-  return `/media/realflame/${filename}`;
+const downloaded = new Map();
+async function download(file) {
+  if (downloaded.has(file.path)) return downloaded.get(file.path);
+  const task = (async () => {
+    const extension = (extname(file.name) || '.jpg').toLowerCase();
+    const filename = `${createHash('sha256').update(file.path).digest('hex').slice(0, 24)}${extension}`;
+    const publicPath = `/media/realflame/${filename}`;
+    try {
+      await access(join(outputDir, filename));
+      return publicPath;
+    } catch {
+      // Download the asset below when it is not already in shared storage.
+    }
+    const url = new URL(downloadApiUrl);
+    url.searchParams.set('public_key', publicKey);
+    url.searchParams.set('path', file.path);
+    const meta = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+    if (!meta.ok) throw new Error(`Download URL HTTP ${meta.status}`);
+    const href = (await meta.json()).href;
+    const asset = await fetch(href, { signal: AbortSignal.timeout(40_000) });
+    if (!asset.ok) throw new Error(`Image HTTP ${asset.status}`);
+    await writeFile(join(outputDir, filename), Buffer.from(await asset.arrayBuffer()));
+    return publicPath;
+  })();
+  downloaded.set(file.path, task);
+  try {
+    return await task;
+  } catch (error) {
+    downloaded.delete(file.path);
+    throw error;
+  }
 }
 
 await client.connect();
@@ -99,9 +121,8 @@ try {
       const match = matches[cursor++];
       try {
         const localImages = [];
-        for (const [index, file] of match.folderFiles.entries()) {
-          const extension = extname(file.name) || '.jpg';
-          localImages.push(await download(file, `${match.product.supplier_sku}-${index + 1}${extension.toLowerCase()}`));
+        for (const file of match.folderFiles.slice(0, maxImagesPerProduct)) {
+          localImages.push(await download(file));
         }
         if (localImages.length) {
           await client.query(`UPDATE products SET images = $1::jsonb, supplier_updated_at = NOW(), updated_at = NOW() WHERE id = $2`, [JSON.stringify(localImages), match.product.id]);
