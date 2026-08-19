@@ -40,8 +40,8 @@ export function catalogProductRank(product: Product) {
 }
 
 export function compareCatalogProducts(left: Product, right: Product) {
-  return catalogProductRank(left) - catalogProductRank(right)
-    || Number(!left.image.startsWith('/media/realflame/')) - Number(!right.image.startsWith('/media/realflame/'))
+  return Number(!left.image.startsWith('/media/realflame/')) - Number(!right.image.startsWith('/media/realflame/'))
+    || catalogProductRank(left) - catalogProductRank(right)
     || left.name.localeCompare(right.name, 'ru');
 }
 
