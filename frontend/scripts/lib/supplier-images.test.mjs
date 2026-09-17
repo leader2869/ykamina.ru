@@ -1,6 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { articleFromRow, assertSupplierRows, mergeProductImages } from './supplier-images.mjs';
+import { exactFireboxModel } from './photobank-exact.mjs';
+
+test('photobank fallback only recognizes whole firebox models, never fireplace kits', () => {
+  assert.equal(exactFireboxModel('Электроочаг RealFlame Eugene'), 'eugene');
+  assert.equal(exactFireboxModel('Электроочаг EUGENE/ЮДЖИН'), 'eugene');
+  assert.equal(exactFireboxModel('Каминокомплект ANDREA с очагом EUGENE'), null);
+  assert.notEqual(exactFireboxModel('Электроочаг FOBOS LUX RC'), exactFireboxModel('Электроочаг FOBOS LUX'));
+});
 
 test('supports current and legacy article headers; rejects an unrecognized feed', () => {
   assert.equal(articleFromRow({ 'Артикул [CML2_ARTICLE]': ' 200005 ' }), '200005');

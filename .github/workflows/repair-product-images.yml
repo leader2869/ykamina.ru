@@ -32,6 +32,14 @@ jobs:
         run: |
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             'cd /srv/ykamina/current/frontend && IMAGE_REPAIR_REPORT_DIR=/srv/ykamina/shared/image-repair npm run supplier:realflame:repair-images'
+      - name: Reload public file inventory and check the catalog
+        if: always()
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            'sudo systemctl restart ykamina.service && for attempt in $(seq 1 20); do if curl --fail --silent --max-time 10 http://127.0.0.1:3000/api/products >/dev/null; then exit 0; fi; sleep 2; done; exit 1'
       - name: Download repair reports
         if: always()
         env:
