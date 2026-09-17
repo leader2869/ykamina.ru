@@ -2,6 +2,12 @@ name: Repair production product images
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Repair images or inspect server health without changing data
+        type: choice
+        options: [repair, diagnose]
+        default: repair
 
 concurrency:
   group: production-image-repair
@@ -25,7 +31,16 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+      - name: Inspect server and deployment health
+        if: inputs.mode == 'diagnose'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            'uptime; free -m; df -h /srv/ykamina; readlink -f /srv/ykamina/current; ps -eo pid,comm,etimes,pcpu,pmem --sort=-pcpu | head -15; systemctl is-active ykamina.service; find /srv/ykamina -maxdepth 1 -type d -name ".staging-*" -exec du -sh {} \;'
       - name: Restore verified supplier images with a rollback snapshot
+        if: inputs.mode != 'diagnose'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -33,7 +48,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             'cd /srv/ykamina/current/frontend && IMAGE_REPAIR_REPORT_DIR=/srv/ykamina/shared/image-repair npm run supplier:realflame:repair-images'
       - name: Reload public file inventory and check the catalog
-        if: always()
+        if: always() && inputs.mode != 'diagnose'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -41,7 +56,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             'sudo systemctl restart ykamina.service && for attempt in $(seq 1 20); do if curl --fail --silent --max-time 10 http://127.0.0.1:3000/api/products >/dev/null; then exit 0; fi; sleep 2; done; exit 1'
       - name: Download repair reports
-        if: always()
+        if: always() && inputs.mode != 'diagnose'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -49,7 +64,7 @@ jobs:
           mkdir -p reports
           scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST:/srv/ykamina/shared/image-repair/*-report.json" reports/
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && inputs.mode != 'diagnose'
         with:
           name: image-repair-reports
           path: reports/
