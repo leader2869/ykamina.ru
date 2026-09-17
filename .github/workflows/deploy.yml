@@ -54,6 +54,7 @@ jobs:
       - run: npm run lint
       - run: npm run test:images
       - run: npm run build
+      - run: npm run test:images:serving
       - name: Package verified release
         working-directory: .
         run: |
