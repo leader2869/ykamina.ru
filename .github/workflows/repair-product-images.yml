@@ -10,7 +10,7 @@ on:
         default: repair
 
 concurrency:
-  group: production-image-repair
+  group: production-image-${{ inputs.mode || 'repair' }}
   cancel-in-progress: false
 
 permissions:
@@ -40,7 +40,7 @@ jobs:
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'uptime; free -m; df -h /srv/ykamina; readlink -f /srv/ykamina/current; ps -eo pid,comm,etimes,pcpu,pmem --sort=-pcpu | head -15; systemctl is-active ykamina.service; find /srv/ykamina -maxdepth 1 -type d -name ".staging-*" -exec du -sh {} \;'
+            'uptime; free -m; df -h /srv/ykamina; readlink -f /srv/ykamina/current; ps -eo pid,comm,etimes,pcpu,pmem --sort=-pcpu | head -15; systemctl is-active ykamina.service; find /srv/ykamina -maxdepth 1 -type d -name ".staging-*" -exec du -sh {} \;; find /tmp -maxdepth 1 -type f -name "ykamina-*.tgz" -printf "%f %s bytes\n"; find /srv/ykamina/shared/image-repair -maxdepth 1 -name "*-report.json" -exec tail -c 500 {} \;'
       - name: Restore verified supplier images with a rollback snapshot
         if: inputs.mode != 'diagnose'
         env:
