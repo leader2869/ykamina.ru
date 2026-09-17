@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import pg from 'pg';
 import sharp from 'sharp';
 import { articleFromRow, assertSupplierRows, createImageCache } from './lib/supplier-images.mjs';
+import { loadExactPhotobank } from './lib/photobank-exact.mjs';
 
 // Only photographs are changed. Prices, stock, publication and orders stay intact.
 const apply = process.argv.includes('--apply');
@@ -27,6 +28,9 @@ try {
   // Save original values before the first update, for exact rollback.
   await writeFile(join(reportDir, `${run}-before.json`), JSON.stringify(products, null, 2), { mode: 0o600 });
   const report = { run, apply, total: products.length, updated: 0, healthy: 0, unresolved: [], conflicts: [], failures: [], sources: {} };
+  let photobank;
+  try { photobank = await loadExactPhotobank(); }
+  catch (error) { console.warn(`Photobank unavailable; continuing exact CSV recovery: ${error.message}`); }
   const localChecks = new Map();
   async function localImage(url) {
     if (!/^\/media\/realflame\/[a-zA-Z0-9_-]+\.(webp|jpe?g|png)$/i.test(url)) return null;
@@ -37,7 +41,13 @@ try {
         const image = sharp(await readFile(file));
         const metadata = await image.metadata();
         if (!metadata.width || !metadata.height) return null;
-        return url;
+        if (metadata.format === 'webp' && metadata.width <= 1200 && metadata.height <= 1200) return url;
+        const filename = url.split('/').at(-1).replace(/\.(webp|jpe?g|png)$/i, '-optimized.webp');
+        const destination = join(mediaDir, filename);
+        const { rename } = await import('node:fs/promises');
+        await image.rotate().resize({ width: 1200, height: 1200, fit: 'inside', withoutEnlargement: true }).webp({ quality: 82 }).toFile(`${destination}.${process.pid}.tmp`);
+        await rename(`${destination}.${process.pid}.tmp`, destination);
+        return `/media/realflame/${filename}`;
       } catch { return null; }
     })());
     return localChecks.get(url);
@@ -58,6 +68,13 @@ try {
       for (const image of oldImages) {
         const local = await localImage(image);
         if (local && !verified.includes(local)) verified.push(local);
+      }
+      if (!verified.length) {
+        const file = photobank?.find(product);
+        if (file) {
+          try { verified.push(await photobank.cache(file, cacheImage)); report.sources.exactPhotobank = (report.sources.exactPhotobank || 0) + 1; }
+          catch (error) { report.failures.push({ id: product.id, article: product.supplier_sku, reason: error.message }); }
+        }
       }
       if (!verified.length) {
         for (const image of oldImages.slice(0, 3)) {

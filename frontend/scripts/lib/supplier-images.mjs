@@ -20,11 +20,12 @@ export function createImageCache(outputDir) {
   const tasks = new Map();
   sharp.cache(false);
   sharp.concurrency(1);
-  return function cacheImage(source) {
+  return function cacheImage(source, resolveDownload) {
     if (tasks.has(source)) return tasks.get(source);
     const task = (async () => {
       const url = new URL(source, 'https://realflame.ru');
-      if (url.protocol !== 'https:' || url.hostname !== 'realflame.ru' || !url.pathname.startsWith('/upload/')) {
+      const isPhotobank = resolveDownload && url.origin === 'https://cloud-api.yandex.net' && url.pathname === '/v1/disk/public/resources/download';
+      if (!isPhotobank && (url.protocol !== 'https:' || url.hostname !== 'realflame.ru' || !url.pathname.startsWith('/upload/'))) {
         throw new Error('Unsupported supplier image URL');
       }
       const hash = createHash('sha256').update(url.href).digest('hex').slice(0, 24);
@@ -35,7 +36,8 @@ export function createImageCache(outputDir) {
         const metadata = await sharp(existing).metadata();
         if (metadata.width && metadata.height) return `/media/realflame/${filename}`;
       } catch { /* Missing or invalid cache: download and validate before publishing. */ }
-      const response = await fetch(url, { signal: AbortSignal.timeout(20_000) });
+      const downloadUrl = isPhotobank ? await resolveDownload(url) : url;
+      const response = await fetch(downloadUrl, { signal: AbortSignal.timeout(30_000) });
       if (!response.ok) throw new Error(`Supplier image HTTP ${response.status}`);
       if (!response.headers.get('content-type')?.startsWith('image/')) throw new Error('Supplier returned a non-image response');
       const chunks = [];
