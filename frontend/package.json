@@ -8,6 +8,7 @@
     "start": "node scripts/with-russian-ca.mjs start",
     "lint": "next lint",
     "test:images": "node --test scripts/lib/supplier-images.test.mjs",
+    "test:images:serving": "node scripts/test-image-serving.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
