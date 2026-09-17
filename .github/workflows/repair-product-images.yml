@@ -4,9 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Repair images or inspect server health without changing data
+        description: Repair images, hide the owner-approved 580 unresolved cards, or inspect server health
         type: choice
-        options: [repair, diagnose]
+        options: [repair, diagnose, hide-missing]
         default: repair
 
 concurrency:
@@ -52,9 +52,9 @@ jobs:
           scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$RUNNER_TEMP/image-repair.tgz" "$DEPLOY_USER@$DEPLOY_HOST:$archive"
           scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes deploy/server-run-image-repair.sh "$DEPLOY_USER@$DEPLOY_HOST:/tmp/ykamina-run-image-repair"
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "bash /tmp/ykamina-run-image-repair '${GITHUB_SHA}'"
+            "bash /tmp/ykamina-run-image-repair '${GITHUB_SHA}' '${{ inputs.mode || 'repair' }}'"
       - name: Reload public file inventory and check the catalog
-        if: always() && inputs.mode != 'diagnose'
+        if: always() && inputs.mode != 'diagnose' && inputs.mode != 'hide-missing'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}

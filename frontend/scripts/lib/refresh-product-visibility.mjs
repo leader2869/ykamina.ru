@@ -3,6 +3,7 @@ export async function refreshProductVisibility(client) {
     WITH visibility AS (
       SELECT p.id,
         CASE
+          WHEN p.visibility_comment LIKE 'Фото не восстановлено:%' THEN p.visibility_comment
           WHEN p.price <= 0 THEN 'Нет цены'
           WHEN COALESCE(jsonb_array_length(p.images), 0) = 0 THEN 'Нет фото'
           WHEN p.category_id IS NULL THEN 'Без категории'
