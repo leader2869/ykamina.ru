@@ -108,7 +108,7 @@ jobs:
           # Send only the short-lived URL over SSH. The server fetches the public
           # build artifact from storage, avoiding the slow SSH upload path.
           printf '%s\n' "$download_url" | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            "set -e; IFS= read -r download_url; curl --fail --silent --show-error --location --max-time 300 \"\$download_url\" -o '${archive}.zip'; unzip -p '${archive}.zip' release.tgz > '$archive'; printf '%s  %s\\n' '$archive_hash' '$archive' | sha256sum --check; unlink '${archive}.zip'"
+            "set -e; IFS= read -r download_url; curl --fail --silent --show-error --location --max-time 300 \"\$download_url\" -o '${archive}.zip'; python3 -c 'import sys, zipfile; sys.stdout.buffer.write(zipfile.ZipFile(sys.argv[1]).read(\"release.tgz\"))' '${archive}.zip' > '$archive'; printf '%s  %s\\n' '$archive_hash' '$archive' | sha256sum --check; unlink '${archive}.zip'"
           scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes deploy/server-artifact-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$script"
           {
             printf 'DATABASE_URL=%s\n' "$DATABASE_URL"

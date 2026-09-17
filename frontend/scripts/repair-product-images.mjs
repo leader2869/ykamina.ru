@@ -24,6 +24,8 @@ try {
   const lock = await client.query('SELECT pg_try_advisory_lock(91347, 2) AS locked');
   if (!lock.rows[0].locked) throw new Error('Another image repair is already running');
   const products = (await client.query('SELECT id, name, supplier_sku, images FROM products WHERE is_published = TRUE ORDER BY id')).rows;
+  const priority = (product) => byArticle.get(product.supplier_sku)?.['Детальная картинка (путь)']?.trim() ? 0 : product.images?.some((image) => image.startsWith('/media/')) ? 1 : 2;
+  products.sort((a, b) => priority(a) - priority(b));
   await mkdir(reportDir, { recursive: true, mode: 0o700 });
   // Save original values before the first update, for exact rollback.
   await writeFile(join(reportDir, `${run}-before.json`), JSON.stringify(products, null, 2), { mode: 0o600 });
@@ -90,7 +92,7 @@ try {
         if (changed.rowCount) report.updated++;
         else report.conflicts.push(product.id);
       } else report.updated++;
-      if ((report.updated + report.healthy + report.unresolved.length + report.conflicts.length) % 100 === 0) {
+      if ((report.updated + report.healthy + report.unresolved.length + report.conflicts.length) % 25 === 0) {
         console.log(JSON.stringify({ processed: report.updated + report.healthy + report.unresolved.length + report.conflicts.length, updated: report.updated, healthy: report.healthy, unresolved: report.unresolved.length }));
         await writeFile(join(reportDir, `${run}-report.json`), JSON.stringify(report, null, 2), { mode: 0o600 });
       }
