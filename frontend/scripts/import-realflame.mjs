@@ -1,6 +1,8 @@
 import { parse } from 'csv-parse/sync';
 import pg from 'pg';
+import { join } from 'node:path';
 import { refreshProductVisibility } from './lib/refresh-product-visibility.mjs';
+import { articleFromRow, assertSupplierRows, createImageCache, mergeProductImages } from './lib/supplier-images.mjs';
 
 const sourceUrl = process.env.REALFLAME_CSV_URL || 'https://realflame.ru/upload/partners.csv';
 const databaseUrl = process.env.DATABASE_URL;
@@ -9,6 +11,7 @@ if (!databaseUrl) throw new Error('DATABASE_URL is required. Set it in frontend/
 
 const { Client } = pg;
 const client = new Client({ connectionString: databaseUrl });
+const cacheImage = createImageCache(join(process.cwd(), 'public/media/realflame'));
 
 const normalize = (value) => value?.trim().replace(/^\uFEFF/, '') || '';
 const makeSlug = (article) => `realflame-${article.toLowerCase().replace(/[^a-z0-9а-яё]+/giu, '-')}`;
@@ -58,13 +61,14 @@ try {
   if (!response.ok) throw new Error(`RealFlame returned HTTP ${response.status}`);
   const csv = await response.text();
   const rows = parse(csv, { columns: true, delimiter: ';', bom: true, skip_empty_lines: true, relax_quotes: true, trim: true });
+  assertSupplierRows(rows);
   const categories = new Map();
   let created = 0;
   let updated = 0;
 
   for (const row of rows) {
     const name = normalize(row['Наименование элемента']);
-    const article = normalize(row['Артикул [ARTICLE]']);
+    const article = articleFromRow(row);
     const parsedPrice = Number.parseFloat(normalize(row['Цена "Розничная цена"']).replace(',', '.'));
     const price = Number.isFinite(parsedPrice) && parsedPrice > 0 ? parsedPrice : 0;
     if (!name || !article) continue;
@@ -90,7 +94,13 @@ try {
 
     const image = normalize(row['Детальная картинка (путь)']);
     const dimensions = { height: Number(normalize(row['Высота, мм [HEIGHT]'])) || null, width: Number(normalize(row['Ширина, мм [WIDTH]'])) || null, depth: Number(normalize(row['Глубина, мм [DEPTH]'])) || null };
-    const existing = await client.query('SELECT id FROM products WHERE supplier_sku = $1', [article]);
+    const existing = await client.query('SELECT id, images FROM products WHERE supplier_sku = $1', [article]);
+    const incomingImages = [];
+    if (image) {
+      try { incomingImages.push(await cacheImage(image)); }
+      catch (error) { console.warn(`Image unavailable for ${article}: ${error.message}; preserving existing photos.`); }
+    }
+    const images = mergeProductImages(existing.rows[0]?.images, incomingImages);
     const result = await client.query(
       `INSERT INTO products (name, slug, description, price, category_id, images, stock, dimensions, supplier_sku, supplier_updated_at, is_published, visibility_comment)
        VALUES ($1, $2, $3, $4, $5, $6::jsonb, 0, $7::jsonb, $8, NOW(), $9, $10)
@@ -100,9 +110,9 @@ try {
          is_published = EXCLUDED.is_published, visibility_comment = EXCLUDED.visibility_comment,
          supplier_updated_at = NOW(), updated_at = NOW()
        RETURNING id`,
-      [name, makeSlug(article), description, price, categories.get(categoryKey), JSON.stringify(image ? [image] : []), JSON.stringify(dimensions), article,
-        price > 0 && Boolean(image) && parentName !== 'Другое' && !isAccessory(name),
-        price <= 0 ? 'Нет цены' : !image ? 'Нет фото' : parentName === 'Другое' || isAccessory(name) ? 'Служебная категория' : null],
+      [name, makeSlug(article), description, price, categories.get(categoryKey), JSON.stringify(images), JSON.stringify(dimensions), article,
+        price > 0 && images.length > 0 && parentName !== 'Другое' && !isAccessory(name),
+        price <= 0 ? 'Нет цены' : !images.length ? 'Нет фото' : parentName === 'Другое' || isAccessory(name) ? 'Служебная категория' : null],
     );
     await client.query(
       `INSERT INTO prices (product_id, supplier_id, price) VALUES ($1, $2, $3)

@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "node scripts/with-russian-ca.mjs start",
     "lint": "next lint",
+    "test:images": "node --test scripts/lib/supplier-images.test.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "db:migrate": "node --env-file=.env.local scripts/migrate.mjs",
@@ -18,6 +19,7 @@
     "supplier:realflame:sync": "npm run supplier:realflame && npm run supplier:realflame:stock && npm run supplier:realflame:sales",
     "supplier:realflame:gallery": "node --env-file=.env.local scripts/import-realflame-gallery.mjs",
     "supplier:realflame:photobank": "node --env-file=.env.local scripts/import-realflame-photobank.mjs",
+    "supplier:realflame:repair-images": "node --env-file=.env.local scripts/repair-product-images.mjs --apply",
     "supplier:realflame:compatibilities": "node --env-file=.env.local scripts/import-realflame-compatibilities.mjs",
     "catalog:publish-biofireplaces": "node --env-file=.env.local scripts/publish-biofireplaces.mjs"
   },

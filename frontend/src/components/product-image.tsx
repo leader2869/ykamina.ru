@@ -14,7 +14,7 @@ export function ProductImage({ src, alt, compact = false, ...props }: ProductIma
       <svg aria-hidden="true" viewBox="0 0 64 64" className={compact ? 'h-7 w-7' : 'h-12 w-12'} fill="none" stroke="currentColor" strokeWidth="1.8">
         <path d="M13 52h38M17 52V18h30v34M22 18V12h20v6M23 45V29h18v16M27 41c0-5 5-6 5-11 4 4 7 7 5 11-2 4-8 5-10 0Z" />
       </svg>
-      {!compact && <span className="text-[11px] font-medium uppercase tracking-[.12em]">Фото обновляется</span>}
+      {!compact && <span className="text-[11px] font-medium uppercase tracking-[.12em]">Фото пока недоступно</span>}
     </div>;
   }
 
