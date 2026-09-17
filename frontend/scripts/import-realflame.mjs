@@ -107,7 +107,8 @@ try {
        ON CONFLICT (supplier_sku) DO UPDATE SET
          name = EXCLUDED.name, description = EXCLUDED.description, price = EXCLUDED.price,
          category_id = EXCLUDED.category_id, images = EXCLUDED.images, dimensions = EXCLUDED.dimensions,
-         is_published = EXCLUDED.is_published, visibility_comment = EXCLUDED.visibility_comment,
+         is_published = CASE WHEN products.visibility_comment LIKE 'Фото не восстановлено:%' THEN FALSE ELSE EXCLUDED.is_published END,
+         visibility_comment = CASE WHEN products.visibility_comment LIKE 'Фото не восстановлено:%' THEN products.visibility_comment ELSE EXCLUDED.visibility_comment END,
          supplier_updated_at = NOW(), updated_at = NOW()
        RETURNING id`,
       [name, makeSlug(article), description, price, categories.get(categoryKey), JSON.stringify(images), JSON.stringify(dimensions), article,
