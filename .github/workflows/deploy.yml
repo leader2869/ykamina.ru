@@ -11,6 +11,7 @@ concurrency:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   claim:
@@ -87,6 +88,7 @@ jobs:
           chmod 600 ~/.ssh/known_hosts
       - name: Deploy release
         env:
+          GH_TOKEN: ${{ github.token }}
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
@@ -95,7 +97,18 @@ jobs:
         run: |
           archive="/tmp/ykamina-${GITHUB_SHA}.tgz"
           script="/tmp/ykamina-artifact-deploy"
-          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes artifacts/release.tgz "$DEPLOY_USER@$DEPLOY_HOST:$archive"
+          artifact_id="$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --jq '.artifacts[] | select(.name == "production-release") | .id')"
+          download_url="$(curl --fail --silent --show-error --dump-header - --output /dev/null \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+            | sed -n 's/^[Ll]ocation: //p' | tr -d '\r')"
+          test -n "$download_url"
+          echo "::add-mask::$download_url"
+          archive_hash="$(sha256sum artifacts/release.tgz | cut -d ' ' -f 1)"
+          # Send only the short-lived URL over SSH. The server fetches the public
+          # build artifact from storage, avoiding the slow SSH upload path.
+          printf '%s\n' "$download_url" | ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -e; IFS= read -r download_url; curl --fail --silent --show-error --location --max-time 300 \"\$download_url\" -o '${archive}.zip'; unzip -p '${archive}.zip' release.tgz > '$archive'; printf '%s  %s\\n' '$archive_hash' '$archive' | sha256sum --check; unlink '${archive}.zip'"
           scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes deploy/server-artifact-deploy.sh "$DEPLOY_USER@$DEPLOY_HOST:$script"
           {
             printf 'DATABASE_URL=%s\n' "$DATABASE_URL"
