@@ -22,6 +22,8 @@ jobs:
     timeout-minutes: 90
     environment: production
     steps:
+      - uses: actions/checkout@v4
+        if: inputs.mode != 'diagnose'
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -45,8 +47,11 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
+          tar -czf "$RUNNER_TEMP/image-repair.tgz" frontend/scripts
+          archive="/tmp/ykamina-image-repair-${GITHUB_SHA}.tgz"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$RUNNER_TEMP/image-repair.tgz" "$DEPLOY_USER@$DEPLOY_HOST:$archive"
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'cd /srv/ykamina/current/frontend && IMAGE_REPAIR_REPORT_DIR=/srv/ykamina/shared/image-repair npm run supplier:realflame:repair-images'
+            "set -e; work=/srv/ykamina/shared/image-repair-tools/${GITHUB_SHA}; mkdir -p \"\$work\"; tar -xzf '$archive' -C \"\$work\"; cd \"\$work/frontend\"; ln -sfn /srv/ykamina/current/frontend/node_modules node_modules; mkdir -p public; ln -sfn /srv/ykamina/shared/media public/media; IMAGE_REPAIR_REPORT_DIR=/srv/ykamina/shared/image-repair node --env-file=/srv/ykamina/shared/database.env scripts/repair-product-images.mjs --apply"
       - name: Reload public file inventory and check the catalog
         if: always() && inputs.mode != 'diagnose'
         env:
