@@ -39,6 +39,8 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
+          dd if=/dev/urandom of="$RUNNER_TEMP/transfer-probe" bs=65536 count=1 status=none
+          time scp -O -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$RUNNER_TEMP/transfer-probe" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/ykamina-transfer-probe-${GITHUB_RUN_ID}"
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             'uptime; free -m; df -h /srv/ykamina; readlink -f /srv/ykamina/current; ps -eo pid,comm,etimes,pcpu,pmem --sort=-pcpu | head -15; systemctl is-active ykamina.service; find /srv/ykamina -maxdepth 1 -type d -name ".staging-*" -exec du -sh {} \;; find /tmp -maxdepth 1 -type f -name "ykamina-*.tgz" -printf "%f %s bytes\n"; find /srv/ykamina/shared/image-repair -maxdepth 1 -name "*-report.json" -exec tail -c 500 {} \;'
       - name: Restore verified supplier images with a rollback snapshot
