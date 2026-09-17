@@ -2,9 +2,15 @@ name: Repair production product images
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Repair images or inspect server health without changing data
+        type: choice
+        options: [repair, diagnose]
+        default: repair
 
 concurrency:
-  group: production-image-repair
+  group: production-image-${{ inputs.mode || 'repair' }}
   cancel-in-progress: false
 
 permissions:
@@ -16,6 +22,8 @@ jobs:
     timeout-minutes: 90
     environment: production
     steps:
+      - uses: actions/checkout@v4
+        if: inputs.mode != 'diagnose'
       - name: Configure SSH
         env:
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
@@ -25,15 +33,29 @@ jobs:
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
-      - name: Restore verified supplier images with a rollback snapshot
+      - name: Inspect server and deployment health
+        if: inputs.mode == 'diagnose'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
         run: |
+          dd if=/dev/urandom of="$RUNNER_TEMP/transfer-probe" bs=65536 count=1 status=none
+          time scp -O -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$RUNNER_TEMP/transfer-probe" "$DEPLOY_USER@$DEPLOY_HOST:/tmp/ykamina-transfer-probe-${GITHUB_RUN_ID}"
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
-            'cd /srv/ykamina/current/frontend && IMAGE_REPAIR_REPORT_DIR=/srv/ykamina/shared/image-repair npm run supplier:realflame:repair-images'
+            'uptime; free -m; df -h /srv/ykamina; readlink -f /srv/ykamina/current; ps -eo pid,comm,etimes,pcpu,pmem --sort=-pcpu | head -15; systemctl is-active ykamina.service; find /srv/ykamina -maxdepth 1 -type d -name ".staging-*" -exec du -sh {} \;; find /tmp -maxdepth 1 -type f -name "ykamina-*.tgz" -printf "%f %s bytes\n"; find /srv/ykamina/shared/image-repair -maxdepth 1 -name "*-report.json" -exec tail -c 500 {} \;'
+      - name: Restore verified supplier images with a rollback snapshot
+        if: inputs.mode != 'diagnose'
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+        run: |
+          tar -czf "$RUNNER_TEMP/image-repair.tgz" frontend/scripts
+          archive="/tmp/ykamina-image-repair-${GITHUB_SHA}.tgz"
+          scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$RUNNER_TEMP/image-repair.tgz" "$DEPLOY_USER@$DEPLOY_HOST:$archive"
+          ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
+            "set -e; work=/srv/ykamina/shared/image-repair-tools/${GITHUB_SHA}; mkdir -p \"\$work\"; tar -xzf '$archive' -C \"\$work\"; cd \"\$work/frontend\"; ln -sfn /srv/ykamina/current/frontend/node_modules node_modules; mkdir -p public; ln -sfn /srv/ykamina/shared/media public/media; IMAGE_REPAIR_REPORT_DIR=/srv/ykamina/shared/image-repair node --env-file=/srv/ykamina/shared/database.env scripts/repair-product-images.mjs --apply"
       - name: Reload public file inventory and check the catalog
-        if: always()
+        if: always() && inputs.mode != 'diagnose'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -41,7 +63,7 @@ jobs:
           ssh -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST" \
             'sudo systemctl restart ykamina.service && for attempt in $(seq 1 20); do if curl --fail --silent --max-time 10 http://127.0.0.1:3000/api/products >/dev/null; then exit 0; fi; sleep 2; done; exit 1'
       - name: Download repair reports
-        if: always()
+        if: always() && inputs.mode != 'diagnose'
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
@@ -49,7 +71,7 @@ jobs:
           mkdir -p reports
           scp -i ~/.ssh/deploy_key -o IdentitiesOnly=yes "$DEPLOY_USER@$DEPLOY_HOST:/srv/ykamina/shared/image-repair/*-report.json" reports/
       - uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && inputs.mode != 'diagnose'
         with:
           name: image-repair-reports
           path: reports/
